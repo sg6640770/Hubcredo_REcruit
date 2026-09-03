@@ -210,7 +210,7 @@ useEffect(() => {
   useEffect(() => {
     if (!replyConnected) return;
     setLiAccountLoading(true);
-    authFetch("/api/replyio/linkedin-account")
+    authFetch("/linkedin-accounts")
       .then((r) => r.json())
       .then((d: ReplyLIAccount) => setLiAccount(d))
       .catch(() => setLiAccount({ connected: false }))
