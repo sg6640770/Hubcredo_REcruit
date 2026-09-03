@@ -40,12 +40,6 @@ async function replyFetch<T>(method: string, path: string, apiKey: string, body?
 
 // ─────────────────────────────────────────────────────────────
 //  GET /api/replyio/validate
-//  Confirms the stored key actually works against Reply.io, not
-//  just that a row exists — a stale/revoked key should show as
-//  disconnected in the UI, not falsely "connected".
-//
-//  FIX: now returns `reason` on failure so the frontend (and you,
-//  while debugging) can see WHY it failed instead of a bare false.
 // ─────────────────────────────────────────────────────────────
 router.get("/replyio/validate", requireAuth, async (req: AuthenticatedRequest, res: Response) => {
   try {
@@ -54,7 +48,6 @@ router.get("/replyio/validate", requireAuth, async (req: AuthenticatedRequest, r
       res.json({ valid: false, reason: "no_key_configured" });
       return;
     }
-    // Cheapest possible authenticated call to confirm the key works
     await replyFetch("GET", "/sequences?top=1", apiKey);
     res.json({ valid: true });
   } catch (err: unknown) {
@@ -66,14 +59,6 @@ router.get("/replyio/validate", requireAuth, async (req: AuthenticatedRequest, r
 
 // ─────────────────────────────────────────────────────────────
 //  POST /api/replyio/save
-//  Saves/updates the Reply.io API key for this user.
-//
-//  FIX: uses upsert on (user_id, service) so reconnecting never
-//  creates a second row for the same user — this is almost
-//  certainly why you have two `replyio` rows with different
-//  user_ids in the screenshot. Also re-validates the key against
-//  Reply.io BEFORE writing is_connected=true, so a bad key never
-//  gets stored as "connected".
 // ─────────────────────────────────────────────────────────────
 router.post("/replyio/save", requireAuth, async (req: AuthenticatedRequest, res: Response) => {
   const { apiKey, accountLabel } = req.body as { apiKey?: string; accountLabel?: string };
@@ -85,7 +70,6 @@ router.post("/replyio/save", requireAuth, async (req: AuthenticatedRequest, res:
 
   const trimmedKey = apiKey.trim();
 
-  // Verify the key works BEFORE persisting it as connected
   try {
     await replyFetch("GET", "/sequences?top=1", trimmedKey);
   } catch (err: unknown) {
@@ -107,7 +91,7 @@ router.post("/replyio/save", requireAuth, async (req: AuthenticatedRequest, res:
           ...(accountLabel ? { account_label: accountLabel } : {}),
           updated_at: new Date().toISOString(),
         },
-        { onConflict: "user_id,service" } // requires a unique constraint on (user_id, service) — see note below
+        { onConflict: "user_id,service" }
       );
 
     if (error) {
@@ -303,6 +287,148 @@ router.delete("/replyio/sequences/:id", requireAuth, async (req: AuthenticatedRe
     const msg = err instanceof Error ? err.message : String(err);
     logger.error(`[replyio] delete error for seq ${seqId}: ${msg}`);
     res.status(400).json({ error: msg });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────
+//  INBOX ROUTES — confirmed correct against Reply.io's own docs
+//  (docs.reply.io/api-reference/inbox/list-inbox-threads):
+//  GET /v3/inbox/threads takes top/skip query params, no body.
+//  These are what InboxPage.tsx actually calls — they were missing
+//  from this file entirely, which is why every request 404'd.
+// ─────────────────────────────────────────────────────────────
+
+interface ReplyV3InboxThread {
+  id: number;
+  channel: "email" | "linkedIn" | "unknown";
+  isRead: boolean;
+  subject: string | null;
+  bodyPreview: string | null;
+  lastActivityDate: string;
+  isLastMessagePlanned: boolean;
+  contact: {
+    id: number | null;
+    ownerId: number | null;
+    fullName: string | null;
+    email: string | null;
+    linkedInProfileUrl: string | null;
+    phone: string | null;
+    companyName: string | null;
+    title: string | null;
+    isDeleted: boolean;
+  };
+  sequence: { id: number; name: string } | null;
+  category: { id: number; name: string } | null;
+  hasMeetingIntent: boolean;
+  status: { state: "ok" | "needsAttention" };
+}
+
+// GET /api/replyio/inbox/threads
+router.get("/replyio/inbox/threads", requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const apiKey = await getUserReplyApiKey(req.userId!);
+  if (!apiKey) { res.status(401).json({ error: "No Reply.io API key configured" }); return; }
+
+  const sequenceId = req.query.sequenceId as string | undefined;
+  const channelFilter = (req.query.channel as string | undefined) ?? "email";
+
+  try {
+    const data = await replyFetch<{ items: ReplyV3InboxThread[]; hasMore: boolean }>(
+      "GET", "/inbox/threads?top=1000", apiKey
+    );
+
+    let threads = data.items ?? [];
+    if (channelFilter) threads = threads.filter((t) => t.channel === channelFilter);
+    if (sequenceId) threads = threads.filter((t) => t.sequence?.id === Number(sequenceId));
+
+    const normalised = threads.map((t) => ({
+      threadId: t.id,
+      contactId: t.contact.id,
+      name: t.contact.fullName ?? t.contact.email ?? `Thread ${t.id}`,
+      email: t.contact.email ?? null,
+      sequenceId: t.sequence?.id ?? null,
+      sequenceName: t.sequence?.name ?? null,
+      subject: t.subject ?? null,
+      lastMessage: t.bodyPreview ?? null,
+      lastMessageAt: t.lastActivityDate,
+      isRead: t.isRead,
+      unreadCount: t.isRead ? 0 : 1,
+      category: t.category?.name ?? null,
+      hasMeetingIntent: t.hasMeetingIntent ?? false,
+      status: t.status?.state ?? null,
+    }));
+
+    res.json({ threads: normalised });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.error(`[replyio] inbox threads error for user ${req.userId}: ${msg}`);
+    res.status(500).json({ error: msg });
+  }
+});
+
+// GET /api/replyio/inbox/threads/:threadId/messages
+router.get("/replyio/inbox/threads/:threadId/messages", requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const apiKey = await getUserReplyApiKey(req.userId!);
+  if (!apiKey) { res.status(401).json({ error: "No Reply.io API key configured" }); return; }
+
+  const { threadId } = req.params;
+  try {
+    const raw = await replyFetch<{
+      items: Array<{
+        channel: "email" | "linkedIn";
+        date: string;
+        body: string | null;
+        fromName: string | null;
+        fromAddress?: string | null;
+        isOutbound: boolean;
+        subject?: string | null;
+        to?: string[] | null;
+      }>;
+      hasMore: boolean;
+    }>("GET", `/inbox/threads/${threadId}/messages?top=200`, apiKey);
+
+    const messages = (raw.items ?? []).map((m, i) => ({
+      id: i,
+      text: m.body ?? "",
+      isOutgoing: m.isOutbound,
+      sentAt: m.date,
+      fromName: m.fromName ?? null,
+      fromEmail: m.fromAddress ?? null,
+      subject: m.subject ?? null,
+      to: m.to ?? [],
+      channel: m.channel,
+    }));
+
+    res.json({ messages });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.error(`[replyio] inbox messages error for thread ${threadId}: ${msg}`);
+    res.status(500).json({ error: msg });
+  }
+});
+
+// POST /api/replyio/inbox/threads/:threadId/reply
+router.post("/replyio/inbox/threads/:threadId/reply", requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const apiKey = await getUserReplyApiKey(req.userId!);
+  if (!apiKey) { res.status(401).json({ error: "No Reply.io API key configured" }); return; }
+
+  const { threadId } = req.params;
+  const { message } = req.body as { message: string };
+
+  if (!message?.trim()) {
+    res.status(400).json({ error: "message is required" });
+    return;
+  }
+
+  try {
+    await replyFetch("POST", `/inbox/threads/${threadId}/messages`, apiKey, {
+      channel: "email",
+      message: message.trim(),
+    });
+    res.json({ success: true });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.error(`[replyio] inbox reply error for thread ${threadId}: ${msg}`);
+    res.status(500).json({ error: msg });
   }
 });
 

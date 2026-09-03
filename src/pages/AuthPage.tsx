@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ArrowRight, Lock, Mail, User, X } from 'lucide-react';
+import { ArrowRight, Check, Lock, Mail, User, X } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
 
 export default function AuthPage() {
@@ -10,16 +10,36 @@ export default function AuthPage() {
   const [fullName, setFullName] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [signupSuccess, setSignupSuccess] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     setBusy(true);
-    const result = mode === 'signin'
-      ? await signIn(email, password)
-      : await signUp(email, password, fullName);
+
+    if (mode === 'signup') {
+      const result = await signUp(email, password, fullName);
+      setBusy(false);
+      if (result.error) {
+        setError(result.error);
+        return;
+      }
+      // Signup worked — don't rely on email confirmation, just tell them to sign in.
+      setPassword('');
+      setSignupSuccess(true);
+      setMode('signin');
+      return;
+    }
+
+    const result = await signIn(email, password);
     setBusy(false);
     if (result.error) setError(result.error);
+  };
+
+  const switchMode = (nextMode: 'signin' | 'signup') => {
+    setMode(nextMode);
+    setError(null);
+    setSignupSuccess(false);
   };
 
   return (
@@ -31,6 +51,10 @@ export default function AuthPage() {
         </div>
         <h1>{mode === 'signup' ? 'Create your account' : 'Welcome back'}</h1>
         <p>{mode === 'signup' ? 'Start sourcing candidates before the job post goes live.' : 'Sign in to your dashboard.'}</p>
+
+        {signupSuccess && mode === 'signin' && (
+          <div className="auth-success"><Check size={15} /> Account created — you can sign in now.</div>
+        )}
 
         {error && <div className="auth-error"><X size={15} /> {error}</div>}
 
@@ -73,7 +97,7 @@ export default function AuthPage() {
           </button>
         </form>
 
-        <button className="auth-toggle" onClick={() => setMode(mode === 'signup' ? 'signin' : 'signup')}>
+        <button className="auth-toggle" onClick={() => switchMode(mode === 'signup' ? 'signin' : 'signup')}>
           {mode === 'signup' ? 'Already have an account? Sign in' : "Don't have an account? Sign up"}
         </button>
       </div>

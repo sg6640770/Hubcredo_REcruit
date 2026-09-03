@@ -183,12 +183,12 @@ export default function LinkedInPage() {
   const selectedSeq = seqs.find((s) => s.id === selectedId);
 
   // ---- load lead lists ----
-  useEffect(() => {
-    authFetch("/api/recruit/leads/lists")
-      .then((r) => (r.ok ? r.json() : []))
-      .then((d) => setLeadLists(Array.isArray(d) ? d : d.lists ?? []))
-      .catch(() => setLeadLists([]));
-  }, []);
+useEffect(() => {
+  authFetch("/api/recruit/lead-lists")
+    .then((r) => (r.ok ? r.json() : []))
+    .then((d) => setLeadLists(Array.isArray(d) ? d : d.lists ?? []))
+    .catch(() => setLeadLists([]));
+}, []);
 
 // ---- check reply.io connection ----
 useEffect(() => {

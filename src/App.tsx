@@ -14,6 +14,9 @@ import RolesPage from '@/pages/RolesPage';
 import InboxPage from '@/pages/InboxPage';
 import LeadsPage from '@/pages/LeadsPage';
 import LinkedInPage from '@/pages/LinkedInPage';
+import CampaignsPage from '@/pages/CampaignsPage';
+import InboxKitPage from './pages/InboxkitPage';
+import ReplyioPage from './pages/ReplyioPage';
 
 type ModalType = 'demo' | 'access' | null;
 
@@ -38,8 +41,6 @@ const pipeline = [
 ];
 
 const scanStates = ['Scanning LinkedIn…', 'Scanning Indeed…', 'Cross-referencing 500M profiles…', '12 new signals found'];
-
-const trustedLogos = ['NORTHWIND', 'Cobalt', 'Veridian', 'Brightwell', 'Northstar', 'Helix', 'Meridian', 'Apex Labs'];
 
 /* ── Hooks ── */
 
@@ -656,9 +657,9 @@ function LandingPage({ onGetAccess }: { onGetAccess: () => void }) {
           <span>HubCredo</span>
         </button>
         <nav className={`main-nav ${menuOpen ? 'is-open' : ''}`}>
+          <button onClick={() => scrollTo('find-reach')}>Find &amp; reach companies</button>
+          <button onClick={() => scrollTo('find-candidates')}>Find candidates</button>
           <button onClick={() => scrollTo('how-it-works')}>How it works</button>
-          <button onClick={() => scrollTo('product')}>Product</button>
-          <button onClick={() => scrollTo('signals')}>Signal types</button>
         </nav>
         <div className="header-actions">
           <button className="button button-ghost" onClick={() => openModal('demo')}>Book a demo</button>
@@ -674,8 +675,8 @@ function LandingPage({ onGetAccess }: { onGetAccess: () => void }) {
           <div className="dot-grid" />
           <div className="hero-copy" ref={heroCopyParallaxRef}>
             <Reveal className="eyebrow"><span className="status-dot" /> JOB SIGNALS ENGINE — SCANNING NOW</Reveal>
-            <Reveal delay={120}><h1 className="gradient-headline">Know a company is hiring <em>before</em> the second job post goes up.</h1></Reveal>
-            <Reveal delay={240}><p className="hero-lede">HubCredo watches LinkedIn and Indeed on a schedule, flags new openings, reposts, and reopened roles the moment they change, then hands you the candidates to reach out to first.</p></Reveal>
+            <Reveal delay={120}><h1 className="gradient-headline">Find who's hiring, reach the decision-maker, <em>or</em> source the candidates - one app for both sides of the search.</h1></Reveal>
+            <Reveal delay={240}><p className="hero-lede">Track companies hiring and pitch decision-makers directly. Or source and screen candidates for roles you're already working. Same app, either way.</p></Reveal>
             <Reveal delay={360}><div className="hero-actions">
               <MagneticButton className="button button-teal" onClick={() => openModal('access')}>Get early access <ArrowUpRight size={17} /></MagneticButton>
               <button className="text-button" onClick={() => scrollTo('how-it-works')}>See how it works <ArrowDown size={15} /></button>
@@ -695,12 +696,52 @@ function LandingPage({ onGetAccess }: { onGetAccess: () => void }) {
           <div className="strip-note">The best time to reach a candidate<br /><strong>is before everyone else sees the job.</strong></div>
         </section>
 
-        <section className="trusted-strip">
-          <div className="trusted-track">
-            {[...trustedLogos, ...trustedLogos].map((logo, i) => (
-              <span key={i} className="trusted-logo">{logo}</span>
+        <section className="signals section-dark" id="find-reach">
+          <div className="dot-grid" />
+          <div className="section-intro">
+            <Reveal className="eyebrow"><span className="status-dot" /> FIND &amp; REACH COMPANIES</Reveal>
+            <Reveal delay={120}><h2 className="gradient-headline">Find companies hiring, and reach the decision-maker.</h2></Reveal>
+            <Reveal delay={240}><p>HubCredo watches LinkedIn and Indeed, flags new openings and reposts the moment they change, then surfaces the hiring manager behind the role so you can pitch to run the search.</p></Reveal>
+          </div>
+          <div className="signal-grid">
+            {signals.map((signal, i) => (
+              <TiltCard key={signal.label} delay={i * 120} as="article" className={`signal-card ${signal.tone}`}>
+                <span className={`signal-tag ${signal.tone}`}>{signal.label}</span>
+                <h3>{signal.title}</h3>
+                <p>{signal.body}</p>
+                <span className={`card-glow ${signal.tone}`} />
+              </TiltCard>
             ))}
           </div>
+          <div className="section-intro" style={{ marginTop: '90px' }}>
+            <Reveal className="eyebrow"><span className="status-dot" /> WIN THE MANDATE</Reveal>
+            <Reveal delay={120}><h2 className="gradient-headline">Be the first call, not the fiftieth application.</h2></Reveal>
+            <Reveal delay={240}><p>When a signal fires, HubCredo surfaces the hiring manager or founder behind the role — with contact details and a suggested opening line — so you can pitch to run the search directly.</p></Reveal>
+          </div>
+          <div className="signal-grid">
+            <TiltCard className="signal-card teal" delay={0} as="article">
+              <span className="signal-tag teal">DECISION-MAKER</span>
+              <h3>Hiring manager identified</h3>
+              <p>Name, title, and verified contact details for the person behind the open role — not a generic careers inbox.</p>
+              <span className="card-glow teal" />
+            </TiltCard>
+            <TiltCard className="signal-card amber" delay={120} as="article">
+              <span className="signal-tag amber">OUTREACH</span>
+              <h3>Suggested pitch, ready to send</h3>
+              <p>A draft message tailored to the role and company, so you can reach out the same day the signal fires.</p>
+              <span className="card-glow amber" />
+            </TiltCard>
+          </div>
+        </section>
+
+        <section className="product-showcase-section" id="find-candidates">
+          <Reveal className="showcase-heading">
+            <div className="eyebrow eyebrow-dark"><span className="status-dot" /> FIND CANDIDATES</div>
+            <p>Or start from the other side: find candidates.</p>
+          </Reveal>
+          <Reveal delay={160}>
+            <ProductShowcase />
+          </Reveal>
         </section>
 
         <section className="pipeline section-light" id="how-it-works">
@@ -737,41 +778,11 @@ function LandingPage({ onGetAccess }: { onGetAccess: () => void }) {
           </div>
         </section>
 
-        <section className="product-showcase-section" id="product">
-          <Reveal className="showcase-heading">
-            <div className="eyebrow eyebrow-dark"><span className="status-dot" /> THE SIGNAL, NOT THE NOISE</div>
-            <p>One live system from first signal to first conversation.</p>
-          </Reveal>
-          <Reveal delay={160}>
-            <ProductShowcase />
-          </Reveal>
-        </section>
-
-        <section className="signals section-dark" id="signals">
-          <div className="dot-grid" />
-          <div className="section-intro">
-            <Reveal className="eyebrow"><span className="status-dot" /> SIGNAL LEGEND</Reveal>
-            <Reveal delay={120}><h2 className="gradient-headline">Four signals. Each one means something different.</h2></Reveal>
-            <Reveal delay={240}><p>HubCredo doesn't just tell you a job exists — it tells you what changed and how urgent it is.</p></Reveal>
-          </div>
-          <div className="signal-grid">
-            {signals.map((signal, i) => (
-              <TiltCard key={signal.label} delay={i * 120} as="article" className={`signal-card ${signal.tone}`}>
-                <span className={`signal-tag ${signal.tone}`}>{signal.label}</span>
-                <h3>{signal.title}</h3>
-                <p>{signal.body}</p>
-                <span className={`card-glow ${signal.tone}`} />
-              </TiltCard>
-            ))}
-          </div>
-        </section>
-
         <section className="cta section-light">
           <div className="cta-line" />
           <Reveal className="cta-content">
             <div className="eyebrow eyebrow-dark"><span className="status-dot" /> YOUR NEXT ADVANTAGE</div>
-            <h2>Get there before the job post.</h2>
-            <p>Be the first recruiter in the conversation, not the fiftieth applicant in the inbox.</p>
+            <h2>Whether you're chasing the mandate or filling the role, get there first.</h2>
             <MagneticButton className="button button-dark" onClick={() => openModal('access')}>Get early access <ArrowUpRight size={16} /></MagneticButton>
           </Reveal>
         </section>
@@ -786,9 +797,9 @@ function LandingPage({ onGetAccess }: { onGetAccess: () => void }) {
           </div>
           <div className="footer-column">
             <h4>PRODUCT</h4>
+            <button onClick={() => scrollTo('find-reach')}>Find &amp; reach companies</button>
+            <button onClick={() => scrollTo('find-candidates')}>Find candidates</button>
             <button onClick={() => scrollTo('how-it-works')}>How it works</button>
-            <button onClick={() => scrollTo('product')}>Features</button>
-            <button onClick={() => scrollTo('signals')}>Signal types</button>
           </div>
           <div className="footer-column">
             <h4>ACCOUNT</h4>
@@ -861,9 +872,12 @@ function App() {
         {dashPage === 'candidates' && <CandidatesPage />}
         {dashPage === 'leads' && <LeadsPage />}
         {dashPage === 'linkedin' && <LinkedInPage />}
+        {dashPage === 'campaigns' && <CampaignsPage />}
         {dashPage === 'outreach' && <OutreachPage />}
         {dashPage === 'roles' && <RolesPage />}
         {dashPage === 'inbox' && <InboxPage />}
+        {dashPage === 'inboxkit' && <InboxKitPage />}
+        {dashPage === 'replyio' && <ReplyioPage />}
         {dashPage === 'settings' && <SettingsPage />}
 
       </DashboardLayout>

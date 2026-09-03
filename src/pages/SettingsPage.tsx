@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Mail, Linkedin, Zap, Check, X, Loader2, KeyRound } from 'lucide-react';
+import { Mail, Linkedin, Zap, Check, X, Loader2, KeyRound, Globe } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
 
@@ -17,7 +17,7 @@ async function authFetch(path: string, opts?: RequestInit) {
 // IMPORTANT: these keys must match the `service` value your backend looks
 // up (e.g. server/routes/replyioLinkedin.ts does .eq("service", "replyio"))
 // — no underscore, matching that exactly.
-type ProviderKey = 'replyio' | 'linkedin' | 'email';
+type ProviderKey = 'replyio' | 'linkedin' | 'email' | 'inboxkit';
 
 interface UserIntegration {
   id: string;
@@ -40,10 +40,22 @@ const providers: {
   placeholder: string;
   fieldLabel: string;
   liveVerified: boolean; // true = we actually call the provider's API to confirm the key works
+  // optional second field (e.g. InboxKit's Workspace ID)
+  extraField?: { name: 'workspace_id'; label: string; placeholder: string };
 }[] = [
   { key: 'replyio', label: 'Reply.io', desc: 'Connect your Reply.io account to send and track email campaigns automatically.', icon: Zap, placeholder: 'sk-...', fieldLabel: 'API Key', liveVerified: true },
   { key: 'linkedin', label: 'LinkedIn', desc: 'Connect LinkedIn to automate connection requests and InMail outreach.', icon: Linkedin, placeholder: 'LinkedIn session cookie / API token', fieldLabel: 'Access Token', liveVerified: false },
   { key: 'email', label: 'Email (SMTP)', desc: 'Connect a custom email mailbox to send outreach from your own domain.', icon: Mail, placeholder: 'smtp://user:pass@smtp.example.com:587', fieldLabel: 'SMTP Connection String', liveVerified: false },
+  {
+    key: 'inboxkit',
+    label: 'InboxKit',
+    desc: 'Connect InboxKit to view your purchased domains and mailbox infrastructure.',
+    icon: Globe,
+    placeholder: 'ik-...',
+    fieldLabel: 'API Key',
+    liveVerified: true,
+    extraField: { name: 'workspace_id', label: 'Workspace ID', placeholder: 'e.g. ws_12345' },
+  },
 ];
 
 export default function SettingsPage() {
@@ -51,22 +63,26 @@ export default function SettingsPage() {
   const [integrations, setIntegrations] = useState<UserIntegration[]>([]);
   const [loading, setLoading] = useState(true);
   const [savingKey, setSavingKey] = useState<ProviderKey | null>(null);
-  const [forms, setForms] = useState<Record<string, { api_key: string; account_label: string }>>({});
+  const [forms, setForms] = useState<Record<string, { api_key: string; account_label: string; workspace_id: string }>>({});
   const [messages, setMessages] = useState<Record<string, string | null>>({});
 
   const load = async () => {
     // Reading is fine straight from Supabase (RLS should already scope this
     // to the logged-in user) — it's WRITES that need to go through the
-    // backend so the Reply.io key gets verified before is_connected is set.
+    // backend so keys get verified before is_connected is set.
     const { data, error } = await supabase.from('user_integrations').select('*');
     if (error) {
       console.error('Failed to load integrations:', error.message);
     }
     const rows = (data as UserIntegration[]) ?? [];
     setIntegrations(rows);
-    const formState: Record<string, { api_key: string; account_label: string }> = {};
+    const formState: Record<string, { api_key: string; account_label: string; workspace_id: string }> = {};
     rows.forEach((r) => {
-      formState[r.service] = { api_key: r.api_key ?? '', account_label: r.account_label ?? '' };
+      formState[r.service] = {
+        api_key: r.api_key ?? '',
+        account_label: r.account_label ?? '',
+        workspace_id: r.workspace_id ?? '',
+      };
     });
     setForms(formState);
     setLoading(false);
@@ -76,11 +92,15 @@ export default function SettingsPage() {
 
   const getIntegration = (service: ProviderKey) => integrations.find((i) => i.service === service);
 
+  const getFormData = (service: ProviderKey) =>
+    forms[service] ?? { api_key: '', account_label: '', workspace_id: '' };
+
   const save = async (service: ProviderKey) => {
     if (!user) return;
     setSavingKey(service);
     setMessages((m) => ({ ...m, [service]: null }));
-    const formData = forms[service] ?? { api_key: '', account_label: '' };
+    const formData = getFormData(service);
+    const provider = providers.find((p) => p.key === service)!;
 
     if (!formData.api_key.trim()) {
       setMessages((m) => ({ ...m, [service]: 'Enter a key before saving.' }));
@@ -88,18 +108,31 @@ export default function SettingsPage() {
       return;
     }
 
+    if (provider.extraField && !formData.workspace_id.trim()) {
+      setMessages((m) => ({ ...m, [service]: `Enter your ${provider.extraField!.label} before saving.` }));
+      setSavingKey(null);
+      return;
+    }
+
     try {
-      // FIX: goes through the backend now, which — for replyio — makes a
-      // real call to Reply.io's API and only marks is_connected: true if
-      // that call succeeds. This is what makes this page agree with the
-      // LinkedIn page, which does the same live check.
-      const r = await authFetch('/api/integrations/save', {
+      // replyio and inboxkit have real backend routes with live verification.
+      // linkedin/email are saved as-entered with no live check, per the
+      // liveVerified flag above.
+      const endpoint =
+        service === 'replyio' ? '/api/replyio/save'
+        : service === 'inboxkit' ? '/api/inboxkit/save'
+        : '/api/integrations/save-manual';
+
+      const payload =
+        service === 'replyio'
+          ? { apiKey: formData.api_key, accountLabel: formData.account_label }
+          : service === 'inboxkit'
+          ? { apiKey: formData.api_key, workspaceId: formData.workspace_id, accountLabel: formData.account_label }
+          : { service, api_key: formData.api_key, account_label: formData.account_label };
+
+      const r = await authFetch(endpoint, {
         method: 'POST',
-        body: JSON.stringify({
-          service,
-          api_key: formData.api_key,
-          account_label: formData.account_label,
-        }),
+        body: JSON.stringify(payload),
       });
       const d = await r.json();
 
@@ -124,11 +157,18 @@ export default function SettingsPage() {
   const disconnect = async (service: ProviderKey) => {
     const existing = getIntegration(service);
     if (!existing) return;
-    await authFetch('/api/integrations/disconnect', {
+    const endpoint =
+      service === 'replyio' ? '/api/replyio/disconnect'
+      : service === 'inboxkit' ? '/api/inboxkit/disconnect'
+      : '/api/integrations/disconnect-manual';
+    await authFetch(endpoint, {
       method: 'POST',
       body: JSON.stringify({ service }),
     });
-    setForms((f) => ({ ...f, [service]: { api_key: '', account_label: f[service]?.account_label ?? '' } }));
+    setForms((f) => ({
+      ...f,
+      [service]: { api_key: '', workspace_id: '', account_label: f[service]?.account_label ?? '' },
+    }));
     await load();
   };
 
@@ -147,7 +187,7 @@ export default function SettingsPage() {
         {providers.map((p) => {
           const integration = getIntegration(p.key);
           const isConnected = !!integration?.is_connected;
-          const formData = forms[p.key] ?? { api_key: '', account_label: '' };
+          const formData = getFormData(p.key);
           const msg = messages[p.key];
 
           return (
@@ -180,6 +220,19 @@ export default function SettingsPage() {
                     onChange={(e) => setForms((f) => ({ ...f, [p.key]: { ...formData, api_key: e.target.value } }))}
                   />
                 </label>
+
+                {p.extraField && (
+                  <label className="integration-field">
+                    <span><KeyRound size={13} /> {p.extraField.label}</span>
+                    <input
+                      type="text"
+                      placeholder={p.extraField.placeholder}
+                      value={formData.workspace_id}
+                      onChange={(e) => setForms((f) => ({ ...f, [p.key]: { ...formData, workspace_id: e.target.value } }))}
+                    />
+                  </label>
+                )}
+
                 <label className="integration-field">
                   <span>Account label (optional)</span>
                   <input
