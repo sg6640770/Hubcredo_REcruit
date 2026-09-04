@@ -71,6 +71,9 @@ a { color: inherit; }
 .gradient-headline { font-size: clamp(38px, 5vw, 64px); line-height: 1.1; letter-spacing: -.06em; font-weight: 800; color: #18213d; }
 .gradient-headline em { font-style: normal; background: linear-gradient(135deg, var(--teal), var(--teal-light)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
 
+/* Hero headline: match the smaller section-headline size used elsewhere (e.g. "Be the first call, not the fiftieth application") */
+.hero-copy .gradient-headline { font-size: clamp(36px, 4.2vw, 57px); }
+
 /* Reveal animation */
 .reveal { opacity: 0; transform: translateY(28px); transition: opacity .7s cubic-bezier(.22,1,.36,1), transform .7s cubic-bezier(.22,1,.36,1); }
 .reveal.is-visible { opacity: 1; transform: translateY(0); }
@@ -835,5 +838,3 @@ a { color: inherit; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
 }
-
-
