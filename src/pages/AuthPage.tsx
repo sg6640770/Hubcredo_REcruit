@@ -46,8 +46,11 @@ export default function AuthPage() {
     <div className="auth-page">
       <div className="auth-card">
         <div className="auth-brand">
-          <span className="brand-mark"><span /></span>
-          <span>HubCredo</span>
+          <img
+            src="/images/favicon.svg"
+            alt="HubCredo"
+            style={{ height: 100, width: 150, objectFit: 'contain', display: 'block' }}
+          />
         </div>
         <h1>{mode === 'signup' ? 'Create your account' : 'Welcome back'}</h1>
         <p>{mode === 'signup' ? 'Start sourcing candidates before the job post goes live.' : 'Sign in to your dashboard.'}</p>
