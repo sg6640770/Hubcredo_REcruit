@@ -20,6 +20,12 @@ interface DashboardStats {
   interviews_this_week: number;
 }
 
+interface LeadList {
+  id: string;
+  label?: string | null;
+  total_count?: number;
+}
+
 interface ReplySeq { id: number; name: string; status: string; isArchived: boolean; channel?: "email" | "linkedin"; }
 interface ReplyStats { total: number; opened: number; replied: number; bounced: number; }
 interface LiStats { connectionsSent: number; acceptedAutomatedConnections: number; messagesSent: number; replies: number; }
@@ -27,6 +33,13 @@ interface LiStats { connectionsSent: number; acceptedAutomatedConnections: numbe
 export default function OverviewPage({ onNavigate }: { onNavigate?: (page: string) => void }) {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [statsLoading, setStatsLoading] = useState(true);
+
+  // ── NEW: counts derived from lead lists (candidates/clients) ──
+  const [leadCounts, setLeadCounts] = useState<{ candidatesInPlay: number; awaitingClient: number }>({
+    candidatesInPlay: 0,
+    awaitingClient: 0,
+  });
+  const [leadCountsLoading, setLeadCountsLoading] = useState(true);
 
   const [emailStats, setEmailStats] = useState<{ active: number; total: number; sent: number; opened: number; replied: number; bounced: number } | null>(null);
   const [liStats, setLiStats] = useState<{ active: number; total: number; connectionsSent: number; acceptedConnections: number; messagesSent: number; replies: number } | null>(null);
@@ -43,6 +56,30 @@ export default function OverviewPage({ onNavigate }: { onNavigate?: (page: strin
   }, []);
 
   useEffect(() => { loadStats(); }, [loadStats]);
+
+  // ── NEW: pull lead lists and sum counts for "candidate" vs "client" lists ──
+  const loadLeadCounts = useCallback(async () => {
+    setLeadCountsLoading(true);
+    try {
+      const r = await authFetch("/api/recruit/lead-lists");
+      if (r.ok) {
+        const lists: LeadList[] = await r.json();
+        let candidatesInPlay = 0;
+        let awaitingClient = 0;
+        for (const list of lists) {
+          const label = (list.label ?? "").toLowerCase();
+          const count = list.total_count ?? 0;
+          if (label.includes("candidate")) candidatesInPlay += count;
+          else if (label.includes("client")) awaitingClient += count;
+        }
+        setLeadCounts({ candidatesInPlay, awaitingClient });
+      }
+    } finally {
+      setLeadCountsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { loadLeadCounts(); }, [loadLeadCounts]);
 
   useEffect(() => {
     let cancelled = false;
@@ -97,11 +134,12 @@ export default function OverviewPage({ onNavigate }: { onNavigate?: (page: strin
     return () => { cancelled = true; };
   }, []);
 
+  // ── UPDATED: Candidates in Play / Awaiting Client now come from leadCounts, with their own loading flag ──
   const statCards = [
-    { label: "Open Roles", value: stats?.open_roles, icon: Briefcase, page: "roles", color: "#2563EB", bg: "#EFF6FF" },
-    { label: "Candidates in Play", value: stats?.candidates_in_play, icon: Users, page: "candidates", color: "#059669", bg: "#F0FDF4" },
-    { label: "Awaiting Client", value: stats?.awaiting_client, icon: Building2, page: "clients", color: "#7C3AED", bg: "#F5F3FF" },
-    { label: "Interviews This Week", value: stats?.interviews_this_week, icon: CalendarDays, page: "roles", color: "#D97706", bg: "#FFFBEB" },
+    { label: "Open Roles", value: stats?.open_roles, loading: statsLoading, icon: Briefcase, page: "roles", color: "#2563EB", bg: "#EFF6FF" },
+    { label: "Candidates in Play", value: leadCounts.candidatesInPlay, loading: leadCountsLoading, icon: Users, page: "candidates", color: "#059669", bg: "#F0FDF4" },
+    { label: "Awaiting Client", value: leadCounts.awaitingClient, loading: leadCountsLoading, icon: Building2, page: "clients", color: "#7C3AED", bg: "#F5F3FF" },
+    { label: "Interviews This Week", value: stats?.interviews_this_week, loading: statsLoading, icon: CalendarDays, page: "roles", color: "#D97706", bg: "#FFFBEB" },
   ];
 
   return (
@@ -112,7 +150,7 @@ export default function OverviewPage({ onNavigate }: { onNavigate?: (page: strin
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 16, marginBottom: 24 }}>
-        {statCards.map(({ label, value, icon: Icon, page, color, bg }) => (
+        {statCards.map(({ label, value, loading, icon: Icon, page, color, bg }) => (
           <button
             key={label}
             onClick={() => onNavigate?.(page)}
@@ -128,7 +166,7 @@ export default function OverviewPage({ onNavigate }: { onNavigate?: (page: strin
               {onNavigate && <ArrowRight style={{ width: 15, height: 15, color: "#CBD5E1" }} />}
             </div>
             <p style={{ fontSize: "1.5rem", fontWeight: 800, color: "#0A0A0A", margin: "0 0 2px" }}>
-              {statsLoading ? <Loader2 style={{ width: 18, height: 18 }} className="animate-spin" /> : value ?? 0}
+              {loading ? <Loader2 style={{ width: 18, height: 18 }} className="animate-spin" /> : value ?? 0}
             </p>
             <p style={{ fontSize: "0.75rem", color: "#64748B", margin: 0 }}>{label}</p>
           </button>
