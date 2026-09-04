@@ -207,12 +207,25 @@ useEffect(() => {
     });
 }, []);
 
+  // ── FIXED ──────────────────────────────────────────────────────────
+  // Previously called authFetch("/linkedin-accounts") which was missing
+  // the "/api" prefix AND pointed at a route that doesn't exist on either
+  // router. Correct endpoint is GET /api/replyio-linkedin/account-status,
+  // defined in server/routes/replyioLinkedin.ts, which returns
+  // { connected: boolean, account: { id, name, status, profileUrl, ... } | null }.
+  // Mapped that shape onto the ReplyLIAccount interface this component uses.
   useEffect(() => {
     if (!replyConnected) return;
     setLiAccountLoading(true);
-    authFetch("/linkedin-accounts")
+    authFetch("/api/replyio-linkedin/account-status")
       .then((r) => r.json())
-      .then((d: ReplyLIAccount) => setLiAccount(d))
+      .then((d: { connected: boolean; account: { name?: string; status?: string } | null }) => {
+        setLiAccount({
+          connected: d.connected,
+          profile_name: d.account?.name ?? null,
+          status: d.account?.status ?? null,
+        });
+      })
       .catch(() => setLiAccount({ connected: false }))
       .finally(() => setLiAccountLoading(false));
   }, [replyConnected]);
