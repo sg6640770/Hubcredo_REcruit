@@ -58,13 +58,20 @@ export default function DashboardLayout({
       }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: collapsed ? "20px 14px" : "20px 20px 16px" }}>
           {!collapsed && (
-            <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
-              <div style={{ width: 32, height: 32, borderRadius: 9, background: "#0A0A0A", flexShrink: 0 }} />
-              <div style={{ minWidth: 0 }}>
-                <strong style={{ display: "block", fontSize: "0.9375rem", color: "#0A0A0A", whiteSpace: "nowrap" }}>HubCredo</strong>
-                <small style={{ fontSize: "0.6875rem", fontWeight: 700, color: "#2563EB", letterSpacing: ".04em" }}>RECRUIT</small>
-              </div>
+            <div style={{ display: "flex", alignItems: "center", minWidth: 0 }}>
+              <img
+                src="/images/favicon.svg"
+                alt="HubCredo"
+                style={{ height: 32, width: "auto", objectFit: "contain", display: "block", flexShrink: 0 }}
+              />
             </div>
+          )}
+          {collapsed && (
+            <img
+              src="/images/favicon.svg"
+              alt="HubCredo"
+              style={{ height: 35, width: 'auto', objectFit: "contain", display: "block", flexShrink: 0 }}
+            />
           )}
           <button
             onClick={() => setCollapsed(c => !c)}
