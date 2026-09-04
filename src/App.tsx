@@ -41,6 +41,7 @@ const pipeline = [
 ];
 
 const scanStates = ['Scanning LinkedIn…', 'Scanning Indeed…', 'Cross-referencing 500M profiles…', '12 new signals found'];
+const trustedLogos = ['NORTHWIND', 'Cobalt', 'Veridian', 'Brightwell', 'Northstar', 'Helix', 'Meridian', 'Apex Labs'];
 
 /* ── Hooks ── */
 
@@ -652,9 +653,17 @@ function LandingPage({ onGetAccess }: { onGetAccess: () => void }) {
       <ScrollProgressBar />
 
       <header className={`site-header ${scrolled ? 'is-scrolled' : ''}`}>
-        <button className="brand" onClick={() => scrollTo('top')} aria-label="HubCredo home">
-          <span className="brand-mark"><span /></span>
-          <span>HubCredo</span>
+        <button
+          className="brand"
+          onClick={() => scrollTo('top')}
+          aria-label="HubCredo home"
+          style={{ display: 'flex', alignItems: 'center', marginRight: 'auto' }}
+        >
+          <img
+            src="/images/favicon.svg"
+            alt="HubCredo"
+            style={{ height: 100, width: 150, objectFit: 'contain', display: 'block' }}
+          />
         </button>
         <nav className={`main-nav ${menuOpen ? 'is-open' : ''}`}>
           <button onClick={() => scrollTo('find-reach')}>Find &amp; reach companies</button>
@@ -694,6 +703,14 @@ function LandingPage({ onGetAccess }: { onGetAccess: () => void }) {
           <div><MetricCounter target={500} suffix="M+" active={metricsVisible} /><span>profiles indexed<br />for your next search</span></div>
           <div><MetricCounter target={8} suffix="M+" active={metricsVisible} /><span>role changes<br />tracked monthly</span></div>
           <div className="strip-note">The best time to reach a candidate<br /><strong>is before everyone else sees the job.</strong></div>
+        </section>
+
+         <section className="trusted-strip" aria-label="Teams using HubCredo">
+          <div className="trusted-track">
+            {[...trustedLogos, ...trustedLogos].map((logo, i) => (
+              <span key={`${logo}-${i}`} className="trusted-logo">{logo}</span>
+            ))}
+          </div>
         </section>
 
         <section className="signals section-dark" id="find-reach">
@@ -791,7 +808,13 @@ function LandingPage({ onGetAccess }: { onGetAccess: () => void }) {
       <footer className="site-footer site-footer-expanded">
         <div className="footer-main">
           <div className="footer-brand-column">
-            <div className="brand"><span className="brand-mark"><span /></span><span>HubCredo</span></div>
+            <div className="brand" style={{ display: 'flex', alignItems: 'center' }}>
+              <img
+                src="/images/favicon.svg"
+                alt="HubCredo"
+                style={{ height: 200, width: 150, objectFit: 'contain', display: 'block' }}
+              />
+            </div>
             <p>The recruiting intelligence layer for teams that move first — guided, connected, and live from signal to hire.</p>
             <div className="footer-callout">THE BEST CANDIDATE RARELY WINS.<br /><strong>THE BEST TIMING ALWAYS DOES.</strong></div>
           </div>
@@ -811,7 +834,7 @@ function LandingPage({ onGetAccess }: { onGetAccess: () => void }) {
             <h4>REGISTERED OFFICE</h4>
             <p>HubCredo Solutions Private Limited<br />3rd Floor, Rainmakers Workspace,<br />7th Main Road, JP Nagar Phase 2,<br />Bengaluru, Karnataka — 560078</p>
             <h4>EMAIL</h4>
-            <a href="mailto:hello@hubcredo.com">hello@hubcredo.com</a>
+            <a href="mailto:hello@hubcredo.com">business@hubcredo.com</a>
           </div>
         </div>
         <div className="footer-bottom"><span>© 2026 HubCredo. All rights reserved.</span><span>Built for recruiters who move first.</span></div>
@@ -858,7 +881,11 @@ function App() {
   if (loading) {
     return (
       <div className="app-boot">
-        <span className="brand-mark"><span /></span>
+        <img
+          src="/images/favicon.svg"
+          alt="HubCredo"
+          style={{ height: 40, width: 'auto', objectFit: 'contain', display: 'block' }}
+        />
         <p>Loading HubCredo…</p>
       </div>
     );
@@ -867,7 +894,7 @@ function App() {
   if (session) {
     return (
       <DashboardLayout activePage={dashPage} onNavigate={setDashPage}>
-        {dashPage === 'overview' && <OverviewPage />}
+        {dashPage === 'overview' && <OverviewPage onNavigate={setDashPage} />}
         {dashPage === 'clients' && <ClientsPage />}
         {dashPage === 'candidates' && <CandidatesPage />}
         {dashPage === 'leads' && <LeadsPage />}
