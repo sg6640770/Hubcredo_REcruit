@@ -71,8 +71,15 @@ a { color: inherit; }
 .gradient-headline { font-size: clamp(38px, 5vw, 64px); line-height: 1.1; letter-spacing: -.06em; font-weight: 800; color: #18213d; }
 .gradient-headline em { font-style: normal; background: linear-gradient(135deg, var(--teal), var(--teal-light)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
 
-/* Hero headline: match the smaller section-headline size used elsewhere (e.g. "Be the first call, not the fiftieth application") */
-.hero-copy .gradient-headline { font-size: clamp(36px, 4.2vw, 57px); }
+/* ============================================================ */
+/* HERO — text sized down + column ratio widened so the copy
+   spans further right; visual card pinned to the right edge so
+   it lines up flush under the "Get early access" button        */
+/* ============================================================ */
+
+/* Hero headline: smaller now so it fills the wider column across
+   more words per line instead of wrapping into big, blocky lines */
+.hero-copy .gradient-headline { font-size: clamp(30px, 3.6vw, 48px); }
 
 /* Reveal animation */
 .reveal { opacity: 0; transform: translateY(28px); transition: opacity .7s cubic-bezier(.22,1,.36,1), transform .7s cubic-bezier(.22,1,.36,1); }
@@ -85,11 +92,23 @@ a { color: inherit; }
 .section-dark { background: var(--bg-dark); color: var(--text-light); }
 .section-light { background: var(--bg-light); color: var(--text-dark); }
 
-/* Hero */
-.hero { min-height: 100vh; display: grid; grid-template-columns: 1fr 1fr; align-items: center; gap: 60px; padding: 100px max(40px, calc((100vw - 1280px) / 2)); position: relative; overflow: hidden; }
-.hero-copy { position: relative; z-index: 2; max-width: 560px; }
+/* Hero — column ratio widened further (1.5fr vs 1fr) and gap tightened
+   so the copy claims more width; hero-copy max-width removed so the
+   (smaller) text can actually use that width instead of wrapping early */
+/* was: grid-template-columns: 1.5fr 1fr; gap: 28px; */
+.hero {
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: 1fr minmax(420px, 460px);
+  align-items: center;
+  gap: 40px;
+  padding: 100px max(40px, calc((100vw - 1280px) / 2));
+  position: relative;
+  overflow: hidden;
+}
+.hero-copy { position: relative; z-index: 2; max-width: none; }
 .hero-copy .eyebrow { margin-bottom: 24px; }
-.hero-lede { font-size: 18px; line-height: 1.65; color: #5e6b82; margin: 28px 0 36px; max-width: 480px; }
+.hero-lede { font-size: 17px; line-height: 1.65; color: #5e6b82; margin: 26px 0 34px; max-width: 620px; }
 .hero-actions { display: flex; align-items: center; gap: 20px; flex-wrap: wrap; }
 .hero-proof { display: flex; gap: 28px; margin-top: 44px; flex-wrap: wrap; }
 .hero-proof span { font: 12px 'DM Mono', monospace; color: var(--text-dim); }
@@ -98,9 +117,13 @@ a { color: inherit; }
 .scan-cursor { width: 8px; height: 14px; background: var(--teal-light); display: inline-block; animation: blink 1s steps(2) infinite; }
 @keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: 0; } }
 
-/* Live intelligence card */
-.hero-visual { position: relative; width: 100%; display: flex; align-items: center; justify-content: center; }
-.live-card { width: min(440px, 100%); background: #fff; border: 1px solid #e5e9f1; border-radius: 14px; box-shadow: 0 24px 60px rgba(35,59,96,.08), 0 0 40px rgba(14,165,160,.04); overflow: hidden; position: relative; }
+/* Live intelligence card — justify-content changed from center to
+   flex-end so its right edge sits flush with the column's right
+   edge, which lines up with the header's right padding (i.e. it
+   ends directly under "Get early access") instead of floating
+   centered with dead space on both sides */
+.hero-visual { position: relative; width: 100%; display: flex; align-items: center; justify-content: flex-end; }
+.live-card { width: min(420px, 100%); background: #fff; border: 1px solid #e5e9f1; border-radius: 14px; box-shadow: 0 24px 60px rgba(35,59,96,.08), 0 0 40px rgba(14,165,160,.04); overflow: hidden; position: relative; }
 
 .live-card-scan-line { position: absolute; top: 0; left: 0; right: 0; height: 2px; background: linear-gradient(90deg, transparent, rgba(28,198,189,.6), transparent); z-index: 6; pointer-events: none; animation: scan-sweep 5s linear infinite; }
 @keyframes scan-sweep { 0% { transform: translateY(0); opacity: 0; } 5% { opacity: 1; } 95% { opacity: 1; } 100% { transform: translateY(560px); opacity: 0; } }
