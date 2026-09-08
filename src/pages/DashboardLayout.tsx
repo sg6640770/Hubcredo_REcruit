@@ -60,7 +60,7 @@ export default function DashboardLayout({
           {!collapsed && (
             <div style={{ display: "flex", alignItems: "center", minWidth: 0 }}>
               <img
-                src="/images/favicon.svg"
+                src="/images/Hubcredo.png"
                 alt="HubCredo"
                 style={{ height: 32, width: "auto", objectFit: "contain", display: "block", flexShrink: 0 }}
               />
