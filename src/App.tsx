@@ -660,7 +660,7 @@ function LandingPage({ onGetAccess }: { onGetAccess: () => void }) {
           style={{ display: 'flex', alignItems: 'center', marginRight: 'auto' }}
         >
           <img
-            src="/images/favicon.svg"
+            src="/images/Hubcredo.png"
             alt="HubCredo"
             style={{ height: 100, width: 150, objectFit: 'contain', display: 'block' }}
           />
@@ -810,7 +810,7 @@ function LandingPage({ onGetAccess }: { onGetAccess: () => void }) {
           <div className="footer-brand-column">
             <div className="brand" style={{ display: 'flex', alignItems: 'center' }}>
               <img
-                src="/images/favicon.svg"
+                src="/images/Hubcredo.png"
                 alt="HubCredo"
                 style={{ height: 200, width: 150, objectFit: 'contain', display: 'block' }}
               />
