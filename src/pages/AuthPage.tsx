@@ -47,7 +47,7 @@ export default function AuthPage() {
       <div className="auth-card">
         <div className="auth-brand">
           <img
-            src="/images/favicon.svg"
+            src="/images/Hubcredo.png"
             alt="HubCredo"
             style={{ height: 100, width: 150, objectFit: 'contain', display: 'block' }}
           />
