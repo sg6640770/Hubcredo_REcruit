@@ -670,7 +670,7 @@ function LandingPage({ onGetAccess }: { onGetAccess: () => void }) {
           <button onClick={() => scrollTo('find-candidates')}>Find candidates</button>
           <button onClick={() => scrollTo('how-it-works')}>How it works</button>
         </nav>
-        <div className="header-actions">
+        <div className="header-actions" style={{ marginLeft: 40 }}>
           <button className="button button-ghost" onClick={() => openModal('demo')}>Book a demo</button>
           <MagneticButton className="button button-dark" onClick={() => openModal('access')}>Get early access <ArrowUpRight size={16} /></MagneticButton>
         </div>
