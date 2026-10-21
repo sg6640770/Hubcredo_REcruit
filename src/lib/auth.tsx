@@ -1,15 +1,18 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from 'react';
 import type { Session, User } from '@supabase/supabase-js';
-import { supabase, type Profile } from '@/lib/supabase';
+import { supabase } from '@/lib/supabase';
+import type { JpProfile } from '@/types/db';
 
 type AuthContextType = {
   session: Session | null;
   user: User | null;
-  profile: Profile | null;
+  profile: JpProfile | null;
   loading: boolean;
+  isCandidate: boolean;
   signUp: (email: string, password: string, fullName: string) => Promise<{ error: string | null }>;
   signIn: (email: string, password: string) => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
+  refreshProfile: () => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -17,47 +20,59 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [user, setUser] = useState<User | null>(null);
-  const [profile, setProfile] = useState<Profile | null>(null);
+  const [profile, setProfile] = useState<JpProfile | null>(null);
   const [loading, setLoading] = useState(true);
 
+  const loadProfile = useCallback(async (uid: string) => {
+    const { data } = await supabase
+      .from('jp_profiles')
+      .select('*')
+      .eq('id', uid)
+      .maybeSingle();
+    setProfile(data as JpProfile | null);
+    return data as JpProfile | null;
+  }, []);
+
+  const refreshProfile = useCallback(async () => {
+    if (user) await loadProfile(user.id);
+  }, [user, loadProfile]);
+
   useEffect(() => {
+    let mounted = true;
     supabase.auth.getSession().then(({ data }) => {
+      if (!mounted) return;
       setSession(data.session);
       setUser(data.session?.user ?? null);
-      setLoading(false);
+      if (data.session?.user) {
+        loadProfile(data.session.user.id).finally(() => mounted && setLoading(false));
+      } else {
+        setLoading(false);
+      }
     });
 
     const { data: listener } = supabase.auth.onAuthStateChange((_event, newSession) => {
       setSession(newSession);
       setUser(newSession?.user ?? null);
+      if (newSession?.user) {
+        loadProfile(newSession.user.id);
+      } else {
+        setProfile(null);
+      }
       setLoading(false);
     });
 
-    return () => listener.subscription.unsubscribe();
-  }, []);
-
-  useEffect(() => {
-    if (!user) {
-      setProfile(null);
-      return;
-    }
-    (async () => {
-      const { data } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', user.id)
-        .maybeSingle();
-      if (data) setProfile(data as Profile);
-    })();
-  }, [user]);
+    return () => {
+      mounted = false;
+      listener.subscription.unsubscribe();
+    };
+  }, [loadProfile]);
 
   const formatAuthError = (message: string) => {
-    if (message.toLowerCase().includes('invalid api key')) {
-      return 'Supabase rejected the public API key. Update the project URL and anon key in the app settings, then try again.';
-    }
-    if (message.toLowerCase().includes('failed to fetch') || message.toLowerCase().includes('network')) {
-      return 'Supabase could not be reached. Check the connection and try again.';
-    }
+    const m = message.toLowerCase();
+    if (m.includes('invalid api key')) return 'Authentication service rejected the request. Please contact support.';
+    if (m.includes('failed to fetch') || m.includes('network')) return 'Could not reach the authentication service. Check your connection and try again.';
+    if (m.includes('invalid login credentials')) return 'Incorrect email or password.';
+    if (m.includes('user already registered')) return 'An account with this email already exists.';
     return message;
   };
 
@@ -66,16 +81,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
-        options: { data: { full_name: fullName } },
+        options: {
+          data: { app: 'jobpilot', full_name: fullName },
+          emailRedirectTo: `${window.location.origin}/onboarding`,
+        },
       });
       if (error) return { error: formatAuthError(error.message) };
-      if (data.user && data.session) {
-        const { error: profileError } = await supabase.from('profiles').upsert({ id: data.user.id, full_name: fullName });
-        if (profileError) return { error: 'Your account was created, but your workspace profile could not be initialized. Run the database setup and sign in again.' };
+      if (data.user) {
+        await loadProfile(data.user.id);
       }
       return { error: null };
     } catch {
-      return { error: 'We could not reach Supabase. Check the project connection and try again.' };
+      return { error: 'We could not reach the authentication service. Try again in a moment.' };
     }
   };
 
@@ -85,7 +102,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (error) return { error: formatAuthError(error.message) };
       return { error: null };
     } catch {
-      return { error: 'We could not reach Supabase. Check the project connection and try again.' };
+      return { error: 'We could not reach the authentication service. Try again in a moment.' };
     }
   };
 
@@ -97,7 +114,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ session, user, profile, loading, signUp, signIn, signOut }}>
+    <AuthContext.Provider
+      value={{
+        session,
+        user,
+        profile,
+        loading,
+        isCandidate: !!profile,
+        signUp,
+        signIn,
+        signOut,
+        refreshProfile,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );

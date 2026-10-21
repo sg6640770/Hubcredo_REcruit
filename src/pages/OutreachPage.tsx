@@ -1,7 +1,20 @@
 import { useEffect, useState } from 'react';
 import { Plus, X, Send, Mail, Linkedin, Trash2, Check, Clock } from 'lucide-react';
-import { supabase, type OutreachSequence, type Candidate } from '@/lib/supabase';
+import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
+
+type OutreachSequence = {
+  id: string;
+  candidate_id: string | null;
+  channel: 'email' | 'linkedin';
+  subject: string | null;
+  message: string | null;
+  status: string;
+  sent_at: string | null;
+  reply_at: string | null;
+};
+
+type Candidate = { id: string; full_name: string };
 
 export default function OutreachPage() {
   const { user } = useAuth();
