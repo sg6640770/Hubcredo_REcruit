@@ -19,7 +19,8 @@ export default function EntryPage() {
   const goRecruiter = () => {
     localStorage.setItem('jp_role_choice', 'recruiter');
     const recruiterBaseUrl = RECRUITER_APP_URL.replace(/\/+$/, '');
-    window.location.assign(`${recruiterBaseUrl}/login`);
+    // The recruiter app has no /login route; ?auth=1 opens its auth page directly
+    window.location.assign(`${recruiterBaseUrl}/?auth=1`);
   };
 
   const goCandidate = () => {
