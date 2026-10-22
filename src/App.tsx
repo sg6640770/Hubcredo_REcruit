@@ -26,10 +26,6 @@ function OnboardingGate({ children }: { children: React.ReactNode }) {
 }
 
 
-const [showAuth, setShowAuth] = useState(
-  () => new URLSearchParams(window.location.search).has('auth')
-);
-
 export default function App() {
   return (
     <AuthProvider>
