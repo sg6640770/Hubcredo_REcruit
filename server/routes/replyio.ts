@@ -1229,4 +1229,59 @@ router.patch("/replyio/sequences/:id/settings", requireAuth, async (req: Authent
   }
 });
 
+
+
+
+
+// ── Save / update the user's Reply.io API key ──
+router.post("/replyio/save", requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const body = req.body as { apiKey?: string; api_key?: string; label?: string };
+  const apiKey = (body.apiKey ?? body.api_key ?? "").trim();
+  const label = body.label?.trim() || null;
+
+  if (!apiKey) { res.status(400).json({ error: "API key is required" }); return; }
+
+  try {
+    // Verify the key works before storing it
+    await replyFetch("GET", "/whoami", undefined, apiKey);
+  } catch (err: unknown) {
+    res.status(400).json({ error: "Invalid Reply.io API key", detail: err instanceof Error ? err.message : String(err) });
+    return;
+  }
+
+  try {
+    const { data: existing, error: selErr } = await supabase
+      .from("user_integrations")
+      .select("id")
+      .eq("user_id", req.userId!)
+      .eq("service", "replyio")
+      .maybeSingle();
+    if (selErr) throw new Error(selErr.message);
+
+    const row = { api_key: apiKey, ...(label ? { label } : {}) };
+
+    const { error } = existing
+      ? await supabase.from("user_integrations").update(row).eq("id", existing.id)
+      : await supabase.from("user_integrations").insert({ user_id: req.userId!, service: "replyio", ...row });
+
+    if (error) throw new Error(error.message);
+    res.json({ success: true });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.error(`Reply.io save key error: ${msg}`);
+    res.status(500).json({ error: msg });
+  }
+});
+
+// ── Disconnect (remove stored key) ──
+router.delete("/replyio/save", requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const { error } = await supabase
+    .from("user_integrations")
+    .delete()
+    .eq("user_id", req.userId!)
+    .eq("service", "replyio");
+  if (error) { res.status(500).json({ error: error.message }); return; }
+  res.json({ success: true });
+});
+
 export default router;
