@@ -4,7 +4,6 @@ import { requireAuth, type AuthenticatedRequest } from "../lib/auth";
 import { aggregateSignals, computeFingerprint, type RawPosting } from "../lib/jobSignalsAggregate";
 import { triggerScrape, triggerCandidateSearch } from "../lib/n8nTrigger";
 import { logger } from "../lib/logger";
-
 const router: IRouter = Router();
 
 // Finds (or creates) a lead_lists row for this user with the given label —
@@ -613,33 +612,46 @@ router.get("/recruit/job-signals", requireAuth, async (req: AuthenticatedRequest
 router.post("/recruit/job-signals/trigger", requireAuth, async (req: AuthenticatedRequest, res): Promise<void> => {
   const { source, keyword, location, experience, industry, country, max_jobs } = req.body;
 
-  if (!keyword) {
-    res.status(400).json({ error: "keyword is required" });
-    return;
-  }
+  if (!keyword) { res.status(400).json({ error: "keyword is required" }); return; }
   if (!source || !["linkedin", "indeed", "both"].includes(source)) {
     res.status(400).json({ error: "source must be 'linkedin', 'indeed', or 'both'" });
     return;
   }
 
+  // 1. Record the run first, so it appears in "Your recent jobs" immediately
+  const { data: run, error: runErr } = await supabase
+    .from("job_search_runs")
+    .insert({
+      user_id: req.userId!, source, keyword,
+      location: location ?? null, experience: experience ?? null,
+      industry: industry ?? null, max_jobs: max_jobs ?? null,
+      status: "running",
+    })
+    .select("id")
+    .single();
+
+  if (runErr || !run) {
+    logger.error(`job_search_runs insert failed: ${runErr?.message}`);
+    res.status(500).json({ error: "Could not start search" });
+    return;
+  }
+
+  // 2. Fire the n8n workflow, passing run_id so it knows where to write results
   try {
     await triggerScrape({
-      userId: req.userId!,
-      source,
-      keyword,
-      location,
-      experience,
-      industry,
-      country: country || "IN",
-      maxJobs: max_jobs,
+      userId: req.userId!, runId: run.id, source, keyword, location,
+      experience, industry, country: country || "IN", maxJobs: max_jobs,
     });
-    res.status(202).json({ triggered: true });
+    res.status(202).json({ triggered: true, run_id: run.id });
   } catch (err) {
-    req.log.error({ err }, "Failed to trigger job signal scrape");
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.error(`triggerScrape failed: ${msg}`);
+    await supabase.from("job_search_runs")
+      .update({ status: "failed", error: msg, completed_at: new Date().toISOString() })
+      .eq("id", run.id);
     res.status(502).json({ error: "Could not reach the scraping workflow" });
   }
 });
-
 router.post("/recruit/job-signals/:fingerprint/add-to-pipeline", requireAuth, async (req: AuthenticatedRequest, res): Promise<void> => {
   const { company_name, company_domain } = req.body;
   if (!company_name) {
