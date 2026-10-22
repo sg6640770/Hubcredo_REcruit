@@ -3,6 +3,8 @@ import { Link, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard,
   Megaphone,
+  Send,
+  Linkedin,
   KanbanSquare,
   Inbox,
   FileText,
@@ -19,6 +21,8 @@ import { useAuth } from '@/lib/auth';
 const NAV_ITEMS = [
   { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { to: '/campaigns', label: 'Campaigns', icon: Megaphone },
+  { to: '/outreach', label: 'Outreach', icon: Send },
+  { to: '/linkedin', label: 'LinkedIn', icon: Linkedin },
   { to: '/applications', label: 'Applications', icon: KanbanSquare },
   { to: '/inbox', label: 'Inbox', icon: Inbox },
   { to: '/resume-builder', label: 'Resume Builder', icon: FileText },
