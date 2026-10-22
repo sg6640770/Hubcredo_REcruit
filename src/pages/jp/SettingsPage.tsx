@@ -1,207 +1,263 @@
 import { useEffect, useState } from 'react';
-import { User, Sliders, CreditCard, Lock, LogOut, Sparkles } from 'lucide-react';
+import { Mail, Linkedin, Zap, Check, X, Loader2, KeyRound, Globe } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
-import { useToast } from '@/components/Toast';
-import { TagInput, LoadingSkeleton } from '@/components/ui';
-import { api } from '@/lib/api';
-import type { JpCreditTransaction, JpCreditActionCost } from '@/types/db';
 
-type Tab = 'profile' | 'preferences' | 'billing' | 'account';
+const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
-const CREDIT_PACKS = [
-  { id: 'starter', credits: 100, price: '$19' },
-  { id: 'pro', credits: 500, price: '$79' },
-  { id: 'unlimited', credits: 2000, price: '$249' },
+async function authFetch(path: string, opts?: RequestInit) {
+  const { data } = await supabase.auth.getSession();
+  const token = data.session?.access_token;
+  return fetch(`${BASE}${path}`, {
+    ...opts,
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}`, ...(opts?.headers ?? {}) },
+  });
+}
+
+// IMPORTANT: these keys must match the `service` value your backend looks
+// up (e.g. server/routes/replyioLinkedin.ts does .eq("service", "replyio"))
+// — no underscore, matching that exactly.
+type ProviderKey = 'replyio' | 'linkedin' | 'email' | 'inboxkit';
+
+interface UserIntegration {
+  id: string;
+  user_id: string;
+  service: string;
+  api_key: string | null;
+  workspace_id?: string | null;
+  account_label?: string | null;
+  is_connected: boolean;
+  last_checked_at?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+const providers: {
+  key: ProviderKey;
+  label: string;
+  desc: string;
+  icon: typeof Mail;
+  placeholder: string;
+  fieldLabel: string;
+  liveVerified: boolean; // true = we actually call the provider's API to confirm the key works
+  // optional second field (e.g. InboxKit's Workspace ID)
+  extraField?: { name: 'workspace_id'; label: string; placeholder: string };
+}[] = [
+  { key: 'replyio', label: 'Reply.io', desc: 'Connect your Reply.io account to send and track email campaigns automatically.', icon: Zap, placeholder: 'sk-...', fieldLabel: 'API Key', liveVerified: true },
+  { key: 'linkedin', label: 'LinkedIn', desc: 'Connect LinkedIn to automate connection requests and InMail outreach.', icon: Linkedin, placeholder: 'LinkedIn session cookie / API token', fieldLabel: 'Access Token', liveVerified: false },
+  { key: 'email', label: 'Email (SMTP)', desc: 'Connect a custom email mailbox to send outreach from your own domain.', icon: Mail, placeholder: 'smtp://user:pass@smtp.example.com:587', fieldLabel: 'SMTP Connection String', liveVerified: false },
+  {
+    key: 'inboxkit',
+    label: 'InboxKit',
+    desc: 'Connect InboxKit to view your purchased domains and mailbox infrastructure.',
+    icon: Globe,
+    placeholder: 'ik-...',
+    fieldLabel: 'API Key',
+    liveVerified: true,
+    extraField: { name: 'workspace_id', label: 'Workspace ID', placeholder: 'e.g. ws_12345' },
+  },
 ];
 
 export default function SettingsPage() {
-  const { profile, signOut, refreshProfile } = useAuth();
-  const toast = useToast();
-  const [tab, setTab] = useState<Tab>('profile');
-  const [transactions, setTransactions] = useState<JpCreditTransaction[]>([]);
-  const [costs, setCosts] = useState<JpCreditActionCost[]>([]);
+  const { user } = useAuth();
+  const [integrations, setIntegrations] = useState<UserIntegration[]>([]);
   const [loading, setLoading] = useState(true);
+  const [savingKey, setSavingKey] = useState<ProviderKey | null>(null);
+  const [forms, setForms] = useState<Record<string, { api_key: string; account_label: string; workspace_id: string }>>({});
+  const [messages, setMessages] = useState<Record<string, string | null>>({});
 
-  // Profile fields
-  const [fullName, setFullName] = useState('');
-  const [phone, setPhone] = useState('');
-  const [headline, setHeadline] = useState('');
-  const [location, setLocation] = useState('');
-  const [currentRole, setCurrentRole] = useState('');
-  const [targetRole, setTargetRole] = useState('');
-  const [industry, setIndustry] = useState('');
-
-  // Preferences
-  const [dailyCap, setDailyCap] = useState(15);
-  const [targetLocations, setTargetLocations] = useState<string[]>([]);
-  const [dealbreakers, setDealbreakers] = useState<string[]>([]);
-
-  // Account
-  const [newPassword, setNewPassword] = useState('');
-
-  useEffect(() => {
-    if (!profile) return;
-    setFullName(profile.full_name ?? '');
-    setPhone(profile.phone ?? '');
-    setHeadline(profile.headline ?? '');
-    setLocation(profile.location ?? '');
-    setCurrentRole(profile.current_job_title ?? '');
-    setTargetRole(profile.target_role ?? '');
-    setIndustry(profile.target_industry ?? '');
-    setDailyCap(profile.daily_send_cap);
-    setTargetLocations(profile.target_locations ?? []);
-    setDealbreakers(profile.dealbreakers ?? []);
-    (async () => {
-      const [t, c] = await Promise.all([
-        supabase.from('jp_credit_transactions').select('*').eq('user_id', profile.id).order('created_at', { ascending: false }).limit(20),
-        supabase.from('jp_credit_action_costs').select('*').order('credits_cost', { ascending: true }),
-      ]);
-      setTransactions((t.data as JpCreditTransaction[]) ?? []);
-      setCosts((c.data as JpCreditActionCost[]) ?? []);
-      setLoading(false);
-    })();
-  }, [profile]);
-
-  const saveProfile = async () => {
-    await supabase.from('jp_profiles').update({
-      full_name: fullName, phone: phone || null, headline: headline || null,
-      location: location || null, current_job_title: currentRole || null,
-      target_role: targetRole || null, target_industry: industry || null,
-    }).eq('id', profile!.id);
-    await refreshProfile();
-    toast.show('Profile saved.', 'success');
+  const load = async () => {
+    // Reading is fine straight from Supabase (RLS should already scope this
+    // to the logged-in user) — it's WRITES that need to go through the
+    // backend so keys get verified before is_connected is set.
+    const { data, error } = await supabase.from('user_integrations').select('*');
+    if (error) {
+      console.error('Failed to load integrations:', error.message);
+    }
+    const rows = (data as UserIntegration[]) ?? [];
+    setIntegrations(rows);
+    const formState: Record<string, { api_key: string; account_label: string; workspace_id: string }> = {};
+    rows.forEach((r) => {
+      formState[r.service] = {
+        api_key: r.api_key ?? '',
+        account_label: r.account_label ?? '',
+        workspace_id: r.workspace_id ?? '',
+      };
+    });
+    setForms(formState);
+    setLoading(false);
   };
 
-  const savePrefs = async () => {
-    await supabase.from('jp_profiles').update({
-      daily_send_cap: dailyCap, target_locations: targetLocations, dealbreakers,
-    }).eq('id', profile!.id);
-    await refreshProfile();
-    toast.show('Preferences saved.', 'success');
-  };
+  useEffect(() => { if (user) load(); }, [user]);
 
-  const topUp = async (packId: string) => {
+  const getIntegration = (service: ProviderKey) => integrations.find((i) => i.service === service);
+
+  const getFormData = (service: ProviderKey) =>
+    forms[service] ?? { api_key: '', account_label: '', workspace_id: '' };
+
+  const save = async (service: ProviderKey) => {
+    if (!user) return;
+    setSavingKey(service);
+    setMessages((m) => ({ ...m, [service]: null }));
+    const formData = getFormData(service);
+    const provider = providers.find((p) => p.key === service)!;
+
+    if (!formData.api_key.trim()) {
+      setMessages((m) => ({ ...m, [service]: 'Enter a key before saving.' }));
+      setSavingKey(null);
+      return;
+    }
+
+    if (provider.extraField && !formData.workspace_id.trim()) {
+      setMessages((m) => ({ ...m, [service]: `Enter your ${provider.extraField!.label} before saving.` }));
+      setSavingKey(null);
+      return;
+    }
+
     try {
-      const { url } = await api.checkout(packId);
-      window.location.href = url;
-    } catch {
-      toast.show('Could not start checkout.', 'error');
+      // replyio and inboxkit have real backend routes with live verification.
+      // linkedin/email are saved as-entered with no live check, per the
+      // liveVerified flag above.
+      const endpoint =
+        service === 'replyio' ? '/api/replyio/save'
+        : service === 'inboxkit' ? '/api/inboxkit/save'
+        : '/api/integrations/save-manual';
+
+      const payload =
+        service === 'replyio'
+          ? { apiKey: formData.api_key, accountLabel: formData.account_label }
+          : service === 'inboxkit'
+          ? { apiKey: formData.api_key, workspaceId: formData.workspace_id, accountLabel: formData.account_label }
+          : { service, api_key: formData.api_key, account_label: formData.account_label };
+
+      const r = await authFetch(endpoint, {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+      const d = await r.json();
+
+      if (!r.ok) {
+        setMessages((m) => ({ ...m, [service]: d.error ?? 'Could not save. Please try again.' }));
+        return;
+      }
+
+      setMessages((m) => ({
+        ...m,
+        [service]: d.connected ? 'Connected successfully.' : 'Saved, but not yet verified.',
+      }));
+      await load();
+    } catch (err) {
+      console.error(`Failed to save ${service} integration:`, err instanceof Error ? err.message : err);
+      setMessages((m) => ({ ...m, [service]: 'Could not save. Please try again.' }));
+    } finally {
+      setSavingKey(null);
     }
   };
 
-  const updatePassword = async () => {
-    const { error } = await supabase.auth.updateUser({ password: newPassword });
-    if (error) { toast.show('Could not update password.', 'error'); return; }
-    setNewPassword('');
-    toast.show('Password updated.', 'success');
+  const disconnect = async (service: ProviderKey) => {
+    const existing = getIntegration(service);
+    if (!existing) return;
+    const endpoint =
+      service === 'replyio' ? '/api/replyio/disconnect'
+      : service === 'inboxkit' ? '/api/inboxkit/disconnect'
+      : '/api/integrations/disconnect-manual';
+    await authFetch(endpoint, {
+      method: 'POST',
+      body: JSON.stringify({ service }),
+    });
+    setForms((f) => ({
+      ...f,
+      [service]: { api_key: '', workspace_id: '', account_label: f[service]?.account_label ?? '' },
+    }));
+    await load();
   };
 
-  if (loading) return <div className="jp-page-header"><h1>Settings</h1><LoadingSkeleton className="jp-card-skel" /></div>;
+  if (loading) return <div className="dash-loading">Loading settings…</div>;
 
   return (
-    <div>
-      <div className="jp-page-header"><div><h1>Settings & Billing</h1><p>Manage your account, preferences, and credits</p></div></div>
-
-      <div className="jp-settings-tabs">
-        <button className={tab === 'profile' ? 'active' : ''} onClick={() => setTab('profile')}><User size={16} /> Profile</button>
-        <button className={tab === 'preferences' ? 'active' : ''} onClick={() => setTab('preferences')}><Sliders size={16} /> Preferences</button>
-        <button className={tab === 'billing' ? 'active' : ''} onClick={() => setTab('billing')}><CreditCard size={16} /> Billing & Credits</button>
-        <button className={tab === 'account' ? 'active' : ''} onClick={() => setTab('account')}><Lock size={16} /> Account</button>
+    <div className="settings-page">
+      <div className="page-header">
+        <div>
+          <h1>Settings</h1>
+          <p>Connect your outreach channels and integrations.</p>
+        </div>
       </div>
 
-      {tab === 'profile' && (
-        <div className="jp-settings-card">
-          <div className="jp-form">
-            <div className="jp-form-row">
-              <label><span>Full name</span><input value={fullName} onChange={(e) => setFullName(e.target.value)} /></label>
-              <label><span>Phone</span><input value={phone} onChange={(e) => setPhone(e.target.value)} /></label>
-            </div>
-            <label><span>Headline</span><input value={headline} onChange={(e) => setHeadline(e.target.value)} /></label>
-            <label><span>Location</span><input value={location} onChange={(e) => setLocation(e.target.value)} /></label>
-            <div className="jp-form-row">
-              <label><span>Current role</span><input value={currentRole} onChange={(e) => setCurrentRole(e.target.value)} /></label>
-              <label><span>Target role</span><input value={targetRole} onChange={(e) => setTargetRole(e.target.value)} /></label>
-            </div>
-            <label><span>Industry</span><input value={industry} onChange={(e) => setIndustry(e.target.value)} /></label>
-            <button className="jp-btn-primary" onClick={saveProfile}>Save profile</button>
-          </div>
-        </div>
-      )}
+      <div className="integration-list">
+        {providers.map((p) => {
+          const integration = getIntegration(p.key);
+          const isConnected = !!integration?.is_connected;
+          const formData = getFormData(p.key);
+          const msg = messages[p.key];
 
-      {tab === 'preferences' && (
-        <div className="jp-settings-card">
-          <div className="jp-form">
-            <label><span>Daily send cap: {dailyCap}</span>
-              <input type="range" min={5} max={30} value={dailyCap} onChange={(e) => setDailyCap(Number(e.target.value))} />
-              <small>Recommended: 15. Higher values may hurt email deliverability.</small>
-            </label>
-            <label><span>Target locations</span><TagInput values={targetLocations} onChange={setTargetLocations} /></label>
-            <label><span>Dealbreakers</span><TagInput values={dealbreakers} onChange={setDealbreakers} /></label>
-            <button className="jp-btn-primary" onClick={savePrefs}>Save preferences</button>
-          </div>
-        </div>
-      )}
-
-      {tab === 'billing' && (
-        <div className="jp-settings-billing">
-          <div className="jp-credits-summary">
-            <div className="jp-credits-balance">
-              <Sparkles size={20} />
-              <div><span className="jp-credits-value">{profile?.credit_balance ?? 0}</span><span>credits remaining</span></div>
-            </div>
-            <div className="jp-plan-info">
-              <span>Plan: <strong>{profile?.plan_tier}</strong></span>
-              <span>Status: <strong>{profile?.plan_status}</strong></span>
-            </div>
-          </div>
-
-          <h3 className="jp-subhead">Top up credits</h3>
-          <div className="jp-credit-packs">
-            {CREDIT_PACKS.map((p) => (
-              <div key={p.id} className="jp-credit-pack">
-                <strong>{p.credits} credits</strong>
-                <span>{p.price}</span>
-                <button className="jp-btn-primary jp-btn-sm" onClick={() => topUp(p.id)}>Top up</button>
+          return (
+            <div key={p.key} className={`integration-card ${isConnected ? 'connected' : ''}`}>
+              <div className="integration-header">
+                <div className="integration-icon-wrap">
+                  <p.icon size={22} />
+                </div>
+                <div className="integration-title-block">
+                  <h3>{p.label}</h3>
+                  <p>{p.desc}</p>
+                  {!p.liveVerified && (
+                    <p style={{ fontSize: '0.75rem', color: '#94A3B8', margin: '2px 0 0' }}>
+                      Saved as entered — we can't verify this key automatically yet.
+                    </p>
+                  )}
+                </div>
+                <span className={`connection-badge ${isConnected ? 'is-connected' : 'is-disconnected'}`}>
+                  {isConnected ? <><Check size={13} /> Connected</> : <><X size={13} /> Disconnected</>}
+                </span>
               </div>
-            ))}
-          </div>
 
-          <h3 className="jp-subhead">Credit costs per action</h3>
-          <div className="jp-costs-table">
-            {costs.map((c) => (
-              <div key={c.action_type} className="jp-cost-row">
-                <span>{c.description}</span>
-                <strong>{c.credits_cost}</strong>
+              <div className="integration-form">
+                <label className="integration-field">
+                  <span><KeyRound size={13} /> {p.fieldLabel}</span>
+                  <input
+                    type="password"
+                    placeholder={p.placeholder}
+                    value={formData.api_key}
+                    onChange={(e) => setForms((f) => ({ ...f, [p.key]: { ...formData, api_key: e.target.value } }))}
+                  />
+                </label>
+
+                {p.extraField && (
+                  <label className="integration-field">
+                    <span><KeyRound size={13} /> {p.extraField.label}</span>
+                    <input
+                      type="text"
+                      placeholder={p.extraField.placeholder}
+                      value={formData.workspace_id}
+                      onChange={(e) => setForms((f) => ({ ...f, [p.key]: { ...formData, workspace_id: e.target.value } }))}
+                    />
+                  </label>
+                )}
+
+                <label className="integration-field">
+                  <span>Account label (optional)</span>
+                  <input
+                    type="text"
+                    placeholder="e.g. Work inbox"
+                    value={formData.account_label}
+                    onChange={(e) => setForms((f) => ({ ...f, [p.key]: { ...formData, account_label: e.target.value } }))}
+                  />
+                </label>
+
+                {msg && <div className={`integration-msg ${/could|not saved|error/i.test(msg) ? 'error' : 'success'}`}>{msg}</div>}
+
+                <div className="integration-actions">
+                  <button className="dash-primary-btn" onClick={() => save(p.key)} disabled={savingKey === p.key}>
+                    {savingKey === p.key ? <><Loader2 size={15} className="spin" /> {p.liveVerified ? 'Verifying…' : 'Saving…'}</> : <>Save connection</>}
+                  </button>
+                  {isConnected && (
+                    <button className="dash-secondary-btn" onClick={() => disconnect(p.key)}>Disconnect</button>
+                  )}
+                </div>
               </div>
-            ))}
-          </div>
-
-          <h3 className="jp-subhead">Recent transactions</h3>
-          <div className="jp-tx-list">
-            {transactions.length === 0 && <p className="jp-muted">No transactions yet.</p>}
-            {transactions.map((t) => (
-              <div key={t.id} className="jp-tx-row">
-                <span>{t.description || t.type.replace('_', ' ')}</span>
-                <span className={t.amount >= 0 ? 'jp-tx-positive' : 'jp-tx-negative'}>{t.amount > 0 ? '+' : ''}{t.amount}</span>
-                <small>{new Date(t.created_at).toLocaleDateString()}</small>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {tab === 'account' && (
-        <div className="jp-settings-card">
-          <div className="jp-form">
-            <label><span>Change password</span><input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="New password" minLength={6} /></label>
-            <button className="jp-btn-primary" onClick={updatePassword} disabled={!newPassword}>Update password</button>
-            <hr className="jp-divider" />
-            <button className="jp-btn-ghost" onClick={signOut}><LogOut size={16} /> Sign out</button>
-            <p className="jp-muted jp-account-note">To delete your account, please contact support.</p>
-          </div>
-        </div>
-      )}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
