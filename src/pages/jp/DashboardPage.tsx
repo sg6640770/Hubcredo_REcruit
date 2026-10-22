@@ -3,13 +3,14 @@ import { Link } from 'react-router-dom';
 import {
   FunnelChart, Funnel, FunnelChart as FunnelIcon, LabelList,
 } from 'recharts';
-import { Megaphone, Send, Reply, Calendar, Award, TrendingUp, BellRing, Plus } from 'lucide-react';
+import { Megaphone, Send, Reply, Calendar, Award, TrendingUp, BellRing, Plus, Play } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
 import { EmptyState, LoadingSkeleton } from '@/components/ui';
 import type {
   JpFunnelCount, JpDailySendCount, JpReplyStat, JpReminder,
 } from '@/types/db';
+import CandidateTriggerModal from '@/components/CandidateTriggerModal';
 
 const STAGE_ORDER = ['identified', 'outreach_sent', 'reply_received', 'interview', 'offer', 'rejected'] as const;
 const STAGE_LABELS: Record<string, string> = {
@@ -28,6 +29,7 @@ export default function DashboardPage() {
   const [replyStats, setReplyStats] = useState<JpReplyStat[]>([]);
   const [reminders, setReminders] = useState<JpReminder[]>([]);
   const [loading, setLoading] = useState(true);
+  const [triggerOpen, setTriggerOpen] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -103,10 +105,13 @@ export default function DashboardPage() {
           <h1>Dashboard</h1>
           <p>Track your job search progress at a glance</p>
         </div>
-        <Link to="/campaigns" className="jp-btn-primary">
-          <Plus size={18} /> Create campaign
-        </Link>
+        <div className="jp-dashboard-header-actions">
+          <button className="jp-btn-ghost" onClick={() => setTriggerOpen(true)}><Play size={16} /> Trigger scrape</button>
+          <Link to="/campaigns" className="jp-btn-primary"><Plus size={18} /> Create campaign</Link>
+        </div>
       </div>
+
+      <CandidateTriggerModal open={triggerOpen} onClose={() => setTriggerOpen(false)} />
 
       <div className="jp-kpi-grid">
         {kpis.map((kpi) => (
