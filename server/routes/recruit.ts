@@ -3,6 +3,7 @@ import { supabase } from "../lib/supabase";
 import { requireAuth, type AuthenticatedRequest } from "../lib/auth";
 import { aggregateSignals, computeFingerprint, type RawPosting } from "../lib/jobSignalsAggregate";
 import { triggerScrape, triggerCandidateSearch } from "../lib/n8nTrigger";
+import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
 
