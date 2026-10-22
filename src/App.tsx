@@ -9,6 +9,7 @@ import DashboardLayout from '@/components/DashboardLayout';
 import LandingPage from '@/pages/jp/LandingPage';
 import EntryPage from '@/pages/jp/EntryPage';
 import AuthPage from '@/pages/jp/AuthPage';
+import TriggerSpacePage from '@/pages/jp/TriggerSpacePage';
 import { ForgotPasswordPage, ResetPasswordPage } from '@/pages/jp/PasswordPages';
 import OnboardingPage from '@/pages/jp/OnboardingPage';
 import DashboardPage from '@/pages/jp/DashboardPage';
@@ -167,6 +168,14 @@ export default function App() {
             <Route path="/dashboard" element={<CandidatePage><DashboardPage /></CandidatePage>} />
             <Route path="/campaigns" element={<CandidatePage><RecruiterCampaignsPage /></CandidatePage>} />
             <Route path="/campaigns/:id" element={<CandidatePage><CampaignDetailPage /></CandidatePage>} />
+            <Route
+  path="/trigger-space"
+  element={
+    <CandidatePage>
+      <TriggerSpacePage />
+    </CandidatePage>
+  }
+/>
             <Route path="/applications" element={<CandidatePage><ApplicationsPage /></CandidatePage>} />
             <Route path="/outreach" element={<CandidatePage><OutreachPage /></CandidatePage>} />
             <Route path="/linkedin" element={<CandidatePage><LinkedInPage /></CandidatePage>} />
