@@ -17,6 +17,7 @@ import ResumeBuilderPage from '@/pages/jp/ResumeBuilderPage';
 import CoverLettersPage from '@/pages/jp/CoverLettersPage';
 import ConnectedAccountsPage from '@/pages/jp/ConnectedAccountsPage';
 import SettingsPage from '@/pages/jp/SettingsPage';
+import RecruiterAuthPage from '@/pages/AuthPage';
 
 function OnboardingGate({ children }: { children: React.ReactNode }) {
   const { profile, loading } = useAuth();
@@ -40,6 +41,7 @@ export default function App() {
             <Route path="/onboarding" element={
               <CandidateRoute><OnboardingPage /></CandidateRoute>
             } />
+            <Route path="/recruiter/login" element={<RecruiterAuthPage />} />
             <Route path="/dashboard" element={
               <CandidateRoute><OnboardingGate><DashboardLayout><DashboardPage /></DashboardLayout></OnboardingGate></CandidateRoute>
             } />
