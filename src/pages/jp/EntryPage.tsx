@@ -1,7 +1,6 @@
 import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Briefcase, User, ArrowRight } from 'lucide-react';
-import { RECRUITER_APP_URL } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
 
 export default function EntryPage() {
@@ -18,9 +17,8 @@ export default function EntryPage() {
 
   const goRecruiter = () => {
     localStorage.setItem('jp_role_choice', 'recruiter');
-    const recruiterBaseUrl = RECRUITER_APP_URL.replace(/\/+$/, '');
-    // The recruiter app has no /login route; ?auth=1 opens its auth page directly
-    window.location.assign(`${recruiterBaseUrl}/?auth=1`);
+    // Opens the original recruiter AuthPage (src/pages/AuthPage.tsx) via its own route
+    navigate('/recruiter/login');
   };
 
   const goCandidate = () => {
