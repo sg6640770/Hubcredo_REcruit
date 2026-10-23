@@ -7,6 +7,8 @@ import replyioLinkedinRouter from "./routes/replyioLinkedin";
 import integrationsManualRouter from "./routes/integrationsManual";
 import inboxkitRouter from "./routes/inboxkit";
 import healthRouter from "./routes/health";
+import jobpilotAi from './routes/jobpilotAi';
+   
 
 const app = express();
 app.use(cors());
@@ -17,6 +19,6 @@ app.use("/api", replyioLinkedinRouter);
 app.use("/api", integrationsManualRouter);
 app.use("/api", inboxkitRouter);
 app.use("/api", healthRouter);
-
+app.use("/api/jobpilot/ai", jobpilotAi);
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => console.log(`Backend on :${PORT}`));
