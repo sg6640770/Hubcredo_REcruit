@@ -1458,3 +1458,14 @@ a { color: inherit; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
 }
+
+
+
+
+.jp-resume-section input,
+.jp-resume-section textarea { width: 100%; height: 40px; padding: 0 12px; border: 1px solid var(--jp-border); border-radius: 8px; font-size: 14px; background: #fff; outline: 0; margin-bottom: 8px; }
+.jp-resume-section textarea { height: auto; padding: 10px 12px; }
+.jp-resume-section input:focus, .jp-resume-section textarea:focus { border-color: var(--jp-primary); box-shadow: 0 0 0 3px rgba(91,79,232,.1); }
+.jp-resume-section .jp-form-row { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
+.jp-resume-section input[type="checkbox"] { width: auto; height: auto; margin: 0; }
+.jp-form label.jp-checkbox-inline { flex-direction: row; align-items: center; }
