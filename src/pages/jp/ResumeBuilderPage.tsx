@@ -1,13 +1,13 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import {
   Plus, Copy, Trash2, Star, Download, FileText,
-  ArrowUp, ArrowDown, Sparkles, Target, Wand2, Linkedin,
+  ArrowUp, ArrowDown, Sparkles, Target, Wand2, Linkedin, Loader2,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
 import { useToast } from '@/components/Toast';
 import { Badge, EmptyState, LoadingSkeleton, Modal } from '@/components/ui';
-import { api, InsufficientCreditsError } from '@/lib/api';
+import { ai, aiErrorMessage, type MatchResult, type TailorResult } from '@/lib/jpAi';
 import type { JpResume, ResumeContent, ResumeExperience, ResumeEducation, ResumeProject } from '@/types/db';
 
 export default function ResumeBuilderPage() {
@@ -18,6 +18,7 @@ export default function ResumeBuilderPage() {
   const [loading, setLoading] = useState(true);
   const [showMatch, setShowMatch] = useState(false);
   const [showTailor, setShowTailor] = useState(false);
+  const saveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
   const load = useCallback(async () => {
     if (!profile) return;
@@ -29,6 +30,12 @@ export default function ResumeBuilderPage() {
   }, [profile]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Keep the list and the active resume in sync so switching tabs never shows stale content
+  const patchResume = (id: string, patch: Partial<JpResume>) => {
+    setResumes((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+    setActive((prev) => (prev && prev.id === id ? { ...prev, ...patch } : prev));
+  };
 
   const createResume = async () => {
     if (!profile) return;
@@ -55,23 +62,32 @@ export default function ResumeBuilderPage() {
     await supabase.from('jp_resumes').update({ is_primary: false }).eq('user_id', r.user_id).neq('id', r.id);
     await supabase.from('jp_resumes').update({ is_primary: true }).eq('id', r.id);
     setResumes((prev) => prev.map((x) => ({ ...x, is_primary: x.id === r.id })));
+    setActive((prev) => (prev ? { ...prev, is_primary: prev.id === r.id } : prev));
     toast.show('Primary resume updated.', 'success');
   };
 
   const del = async (r: JpResume) => {
     await supabase.from('jp_resumes').delete().eq('id', r.id);
-    setResumes((prev) => prev.filter((x) => x.id !== r.id));
-    if (active?.id === r.id) setActive(resumes.find((x) => x.id !== r.id) ?? null);
+    const remaining = resumes.filter((x) => x.id !== r.id);
+    setResumes(remaining);
+    if (active?.id === r.id) setActive(remaining[0] ?? null);
     toast.show('Resume deleted.', 'info');
   };
 
-  const updateContent = async (content: ResumeContent) => {
+  // Debounced autosave (800 ms after the last keystroke, per resume)
+  const updateContent = (content: ResumeContent) => {
     if (!active) return;
-    setActive({ ...active, content });
-    const debounced = setTimeout(async () => {
-      await supabase.from('jp_resumes').update({ content }).eq('id', active.id);
+    const id = active.id;
+    patchResume(id, { content });
+    clearTimeout(saveTimers.current[id]);
+    saveTimers.current[id] = setTimeout(async () => {
+      await supabase.from('jp_resumes').update({ content }).eq('id', id);
     }, 800);
-    return () => clearTimeout(debounced);
+  };
+
+  const onTailoredSaved = (created: JpResume) => {
+    setResumes((prev) => [created, ...prev]);
+    setActive(created);
   };
 
   if (loading) return <div className="jp-page-header"><h1>Resume Builder</h1><LoadingSkeleton className="jp-card-skel" /></div>;
@@ -118,11 +134,11 @@ export default function ResumeBuilderPage() {
           <button className="jp-btn-ghost jp-btn-sm jp-resume-add" onClick={createResume}><Plus size={14} /> New resume</button>
         </div>
 
-        <ResumeEditor resume={active} onChange={updateContent} onUpdateResume={(u) => setActive({ ...active, ...u })} />
+        <ResumeEditor key={active.id} resume={active} onChange={updateContent} onUpdateResume={(u) => patchResume(active.id, u)} />
       </div>
 
       {showMatch && <MatchModal resume={active} onClose={() => setShowMatch(false)} />}
-      {showTailor && <TailorModal resume={active} onClose={() => setShowTailor(false)} />}
+      {showTailor && <TailorModal resume={active} onClose={() => setShowTailor(false)} onSaved={onTailoredSaved} />}
     </div>
   );
 }
@@ -132,35 +148,55 @@ function ResumeEditor({ resume, onChange, onUpdateResume }: {
   onChange: (c: ResumeContent) => void;
   onUpdateResume: (u: Partial<JpResume>) => void;
 }) {
-  const { profile } = useAuth();
   const toast = useToast();
   const c = resume.content;
+  const [busy, setBusy] = useState<string | null>(null);
 
   const set = (updates: Partial<ResumeContent>) => onChange({ ...c, ...updates });
 
-  const aiRewrite = async (text: string, field: string) => {
+  const aiRewrite = async (text: string, field: string, context?: string, key = field) => {
+    if (!text.trim()) { toast.show(`Write something in ${field.toLowerCase()} first.`, 'info'); return text; }
+    setBusy(key);
     try {
-      const { text: rewritten } = await api.rewriteText(text);
+      const { text: rewritten } = await ai.rewrite(text, { context });
       toast.show(`${field} rewritten.`, 'success');
       return rewritten;
     } catch (e) {
-      if (e instanceof InsufficientCreditsError) toast.show('Out of credits.', 'error');
-      else toast.show('Rewrite failed.', 'error');
+      toast.show(aiErrorMessage(e, 'Rewrite failed.'), 'error');
       return text;
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const generateSummary = async () => {
+    setBusy('summary-gen');
+    try {
+      const { text } = await ai.summary(resume.id, c, { targetRole: resume.target_role || undefined });
+      set({ summary: text });
+      toast.show('Summary generated from your resume.', 'success');
+    } catch (e) {
+      toast.show(aiErrorMessage(e, 'Summary generation failed.'), 'error');
+    } finally {
+      setBusy(null);
     }
   };
 
   const genLinkedin = async () => {
+    setBusy('linkedin');
     try {
-      const { summary } = await api.linkedinSummary(resume.id);
+      const { summary } = await ai.linkedinSummary(resume.id, c);
       await supabase.from('jp_resumes').update({ linkedin_summary: summary }).eq('id', resume.id);
       onUpdateResume({ linkedin_summary: summary });
       toast.show('LinkedIn summary generated!', 'success');
     } catch (e) {
-      if (e instanceof InsufficientCreditsError) toast.show('Out of credits.', 'error');
-      else toast.show('Generation failed.', 'error');
+      toast.show(aiErrorMessage(e, 'Generation failed.'), 'error');
+    } finally {
+      setBusy(null);
     }
   };
+
+  const spin = <Loader2 size={14} className="spin" />;
 
   return (
     <div className="jp-resume-editor">
@@ -192,8 +228,20 @@ function ResumeEditor({ resume, onChange, onUpdateResume }: {
           <input placeholder="Headline" value={c.basics.headline} onChange={(e) => set({ basics: { ...c.basics, headline: e.target.value } })} />
         </Section>
 
-        <Section title="Summary" action={<button className="jp-icon-btn" onClick={async () => { const r = await aiRewrite(c.summary, 'Summary'); set({ summary: r }); }}><Sparkles size={14} /> Rewrite</button>}>
-          <textarea value={c.summary} onChange={(e) => set({ summary: e.target.value })} rows={3} />
+        <Section
+          title="Summary"
+          action={
+            <div className="jp-resume-actions-top">
+              <button className="jp-icon-btn" disabled={busy !== null} onClick={generateSummary} title="Write a summary from your whole resume">
+                {busy === 'summary-gen' ? spin : <Sparkles size={14} />} Generate with AI
+              </button>
+              <button className="jp-icon-btn" disabled={busy !== null || !c.summary.trim()} onClick={async () => { const r = await aiRewrite(c.summary, 'Summary', undefined, 'summary-rw'); set({ summary: r }); }}>
+                {busy === 'summary-rw' ? spin : <Wand2 size={14} />} Rewrite
+              </button>
+            </div>
+          }
+        >
+          <textarea value={c.summary} onChange={(e) => set({ summary: e.target.value })} rows={4} placeholder="Click “Generate with AI” to write this from your experience, skills and education." />
         </Section>
 
         <Section title="Experience" action={<button className="jp-icon-btn" onClick={() => set({ experience: [...c.experience, emptyExp()] })}><Plus size={14} /> Add</button>}>
@@ -217,7 +265,17 @@ function ResumeEditor({ resume, onChange, onUpdateResume }: {
               {exp.bullets.map((b, bi) => (
                 <div key={bi} className="jp-bullet-row">
                   <input placeholder="Achievement bullet" value={b} onChange={(e) => updateExp(set, c, i, { bullets: exp.bullets.map((x, xi) => xi === bi ? e.target.value : x) })} />
-                  <button className="jp-icon-btn" onClick={async () => { const r = await aiRewrite(b, 'Bullet'); updateExp(set, c, i, { bullets: exp.bullets.map((x, xi) => xi === bi ? r : x) }); }}><Sparkles size={14} /></button>
+                  <button
+                    className="jp-icon-btn"
+                    title="Improve this bullet with AI"
+                    disabled={busy !== null}
+                    onClick={async () => {
+                      const r = await aiRewrite(b, 'Bullet', `${exp.title} at ${exp.company}`, `bullet-${i}-${bi}`);
+                      updateExp(set, c, i, { bullets: exp.bullets.map((x, xi) => xi === bi ? r : x) });
+                    }}
+                  >
+                    {busy === `bullet-${i}-${bi}` ? spin : <Sparkles size={14} />}
+                  </button>
                   <button onClick={() => updateExp(set, c, i, { bullets: exp.bullets.filter((_, xi) => xi !== bi) })}><Trash2 size={14} /></button>
                 </div>
               ))}
@@ -246,7 +304,16 @@ function ResumeEditor({ resume, onChange, onUpdateResume }: {
         <Section title="Skills" action={<button className="jp-icon-btn" onClick={() => set({ skills: [...c.skills, ''] })}><Plus size={14} /></button>}>
           <div className="jp-skills-tags">
             {c.skills.map((s, i) => (
-              <span key={i} className="jp-skill-tag">{s || '—'}<button onClick={() => set({ skills: c.skills.filter((_, idx) => idx !== i) })}><Trash2 size={12} /></button></span>
+              <span key={i} className="jp-skill-tag">
+                <input
+                  value={s}
+                  placeholder="Skill"
+                  size={Math.max(6, s.length + 1)}
+                  onChange={(e) => set({ skills: c.skills.map((x, xi) => (xi === i ? e.target.value : x)) })}
+                  style={{ border: 0, background: 'transparent', outline: 0, color: 'inherit', font: 'inherit', padding: 0 }}
+                />
+                <button onClick={() => set({ skills: c.skills.filter((_, idx) => idx !== i) })}><Trash2 size={12} /></button>
+              </span>
             ))}
           </div>
         </Section>
@@ -265,13 +332,44 @@ function ResumeEditor({ resume, onChange, onUpdateResume }: {
         <Section title="Certifications" action={<button className="jp-icon-btn" onClick={() => set({ certifications: [...c.certifications, ''] })}><Plus size={14} /></button>}>
           <div className="jp-skills-tags">
             {c.certifications.map((s, i) => (
-              <span key={i} className="jp-skill-tag">{s || '—'}<button onClick={() => set({ certifications: c.certifications.filter((_, idx) => idx !== i) })}><Trash2 size={12} /></button></span>
+              <span key={i} className="jp-skill-tag">
+                <input
+                  value={s}
+                  placeholder="Certification"
+                  size={Math.max(8, s.length + 1)}
+                  onChange={(e) => set({ certifications: c.certifications.map((x, xi) => (xi === i ? e.target.value : x)) })}
+                  style={{ border: 0, background: 'transparent', outline: 0, color: 'inherit', font: 'inherit', padding: 0 }}
+                />
+                <button onClick={() => set({ certifications: c.certifications.filter((_, idx) => idx !== i) })}><Trash2 size={12} /></button>
+              </span>
             ))}
           </div>
         </Section>
 
-        <Section title="LinkedIn Summary" action={<button className="jp-icon-btn" onClick={genLinkedin}><Linkedin size={14} /> Generate</button>}>
-          <textarea value={resume.linkedin_summary || ''} readOnly rows={3} placeholder="Click Generate to create a LinkedIn summary from your resume." />
+        <Section
+          title="LinkedIn Summary"
+          action={
+            <div className="jp-resume-actions-top">
+              <button className="jp-icon-btn" disabled={busy !== null} onClick={genLinkedin} title="Write your LinkedIn About section from your whole resume">
+                {busy === 'linkedin' ? spin : <Linkedin size={14} />} Generate with AI
+              </button>
+              <button
+                className="jp-icon-btn"
+                disabled={!resume.linkedin_summary}
+                onClick={() => { navigator.clipboard.writeText(resume.linkedin_summary || ''); toast.show('Copied to clipboard.', 'success'); }}
+              >
+                <Copy size={14} /> Copy
+              </button>
+            </div>
+          }
+        >
+          <textarea
+            value={resume.linkedin_summary || ''}
+            rows={6}
+            placeholder="Click “Generate with AI” to create a LinkedIn About section from your resume. You can edit it here."
+            onChange={(e) => onUpdateResume({ linkedin_summary: e.target.value })}
+            onBlur={async () => { await supabase.from('jp_resumes').update({ linkedin_summary: resume.linkedin_summary || null }).eq('id', resume.id); }}
+          />
         </Section>
       </div>
 
@@ -341,32 +439,43 @@ function ResumePreview({ content, template }: { content: ResumeContent; template
 function MatchModal({ resume, onClose }: { resume: JpResume; onClose: () => void }) {
   const toast = useToast();
   const [jd, setJd] = useState('');
-  const [result, setResult] = useState<{ score: number; matched: string[]; missing: string[] } | null>(null);
+  const [result, setResult] = useState<MatchResult | null>(null);
   const [busy, setBusy] = useState(false);
 
   const run = async () => {
     setBusy(true);
+    setResult(null);
     try {
-      const r = await api.matchResume(resume.id, jd);
-      setResult(r);
+      setResult(await ai.match(resume.id, resume.content, jd));
     } catch (e) {
-      if (e instanceof InsufficientCreditsError) toast.show('Out of credits.', 'error');
-      else toast.show('Match failed.', 'error');
+      toast.show(aiErrorMessage(e, 'Match failed.'), 'error');
     }
     setBusy(false);
   };
 
   return (
     <Modal open onClose={onClose} title="Match Score & ATS Check" size="md">
-      <p className="jp-muted">Paste a job description to see how well your resume matches.</p>
-      <textarea value={jd} onChange={(e) => setJd(e.target.value)} rows={5} placeholder="Paste job description…" />
-      <button className="jp-btn-primary" onClick={run} disabled={busy || !jd}>{busy ? 'Analyzing…' : 'Run match'}</button>
+      <p className="jp-muted">Paste a job description. AI compares it with your full resume and shows which requirements you cover and which you don't.</p>
+      <textarea className="jp-cover-textarea" value={jd} onChange={(e) => setJd(e.target.value)} rows={6} placeholder="Paste job description…" />
+      <button className="jp-btn-primary" onClick={run} disabled={busy || jd.trim().length < 40}>
+        {busy ? 'Analyzing…' : <><Sparkles size={16} /> Run match with AI</>}
+      </button>
       {result && (
         <div className="jp-match-result">
           <div className="jp-match-ring"><span>{result.score}%</span></div>
+          <p className="jp-muted" style={{ textAlign: 'center', marginBottom: 16 }}>Keyword coverage of the job's key requirements</p>
+          {result.verdict && <p style={{ marginBottom: 16 }}>{result.verdict}</p>}
           <div className="jp-match-keywords">
-            <div><h4>Matched</h4>{result.matched.map((k) => <Badge key={k} variant="success">{k}</Badge>)}</div>
-            <div><h4>Missing</h4>{result.missing.map((k) => <Badge key={k} variant="warning">{k}</Badge>)}</div>
+            <div><h4>Matched ({result.matched.length})</h4><div>{result.matched.length ? result.matched.map((k) => <Badge key={k} variant="success">{k}</Badge>) : <span className="jp-muted">None found</span>}</div></div>
+            <div><h4>Missing ({result.missing.length})</h4><div>{result.missing.length ? result.missing.map((k) => <Badge key={k} variant="warning">{k}</Badge>) : <span className="jp-muted">Nothing missing</span>}</div></div>
+            {result.tips.length > 0 && (
+              <div>
+                <h4>How to improve</h4>
+                <ul style={{ paddingLeft: 18, fontSize: 14, lineHeight: 1.6 }}>
+                  {result.tips.map((t, i) => <li key={i}>{t}</li>)}
+                </ul>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -374,54 +483,70 @@ function MatchModal({ resume, onClose }: { resume: JpResume; onClose: () => void
   );
 }
 
-function TailorModal({ resume, onClose }: { resume: JpResume; onClose: () => void }) {
+function TailorModal({ resume, onClose, onSaved }: { resume: JpResume; onClose: () => void; onSaved: (r: JpResume) => void }) {
   const { profile } = useAuth();
   const toast = useToast();
   const [jd, setJd] = useState('');
-  const [suggestions, setSuggestions] = useState<{ section: string; before: string; after: string }[] | null>(null);
+  const [result, setResult] = useState<TailorResult | null>(null);
   const [busy, setBusy] = useState(false);
 
   const run = async () => {
     setBusy(true);
+    setResult(null);
     try {
-      const r = await api.tailorResume(resume.id, jd);
-      setSuggestions(r.suggestions);
+      setResult(await ai.tailor(resume.id, resume.content, jd));
     } catch (e) {
-      if (e instanceof InsufficientCreditsError) toast.show('Out of credits.', 'error');
-      else toast.show('Tailoring failed.', 'error');
+      toast.show(aiErrorMessage(e, 'Tailoring failed.'), 'error');
     }
     setBusy(false);
   };
 
   const saveAsNew = async () => {
-    if (!profile) return;
-    const newContent = { ...resume.content };
-    suggestions?.forEach((s) => {
-      if (s.section === 'summary') newContent.summary = s.after;
-    });
-    const { data } = await supabase.from('jp_resumes').insert({
-      user_id: profile.id, name: `${resume.name} (tailored)`, template: resume.template, is_primary: false,
-      source: 'form', content: newContent,
+    if (!profile || !result) return;
+    const { data, error } = await supabase.from('jp_resumes').insert({
+      user_id: profile.id,
+      name: `${resume.name} (tailored)`,
+      template: resume.template,
+      is_primary: false,
+      source: 'form',
+      content: result.tailored,
+      target_role: resume.target_role,
+      target_industry: resume.target_industry,
     }).select().single();
-    if (data) toast.show('Saved as new resume version.', 'success');
+    if (error || !data) { toast.show('Could not save the tailored version.', 'error'); return; }
+    toast.show('Saved as a new resume version.', 'success');
+    onSaved(data as JpResume);
     onClose();
   };
 
   return (
-    <Modal open onClose={onClose} title="Tailor Resume to Job" size="md">
-      <p className="jp-muted">Paste a job description to get suggested rewrites.</p>
-      <textarea value={jd} onChange={(e) => setJd(e.target.value)} rows={5} placeholder="Paste job description…" />
-      <button className="jp-btn-primary" onClick={run} disabled={busy || !jd}>{busy ? 'Tailoring…' : 'Tailor resume'}</button>
-      {suggestions && (
+    <Modal open onClose={onClose} title="Tailor Resume to Job" size="lg">
+      <p className="jp-muted">AI rewrites your summary, reorders skills and sharpens bullets for this job, using only what is already in your resume. Your original stays untouched; the result is saved as a new version.</p>
+      <textarea className="jp-cover-textarea" value={jd} onChange={(e) => setJd(e.target.value)} rows={6} placeholder="Paste job description…" />
+      <button className="jp-btn-primary" onClick={run} disabled={busy || jd.trim().length < 40}>
+        {busy ? 'Tailoring…' : <><Sparkles size={16} /> Tailor with AI</>}
+      </button>
+      {result && (
         <div className="jp-tailor-suggestions">
-          {suggestions.map((s, i) => (
+          {result.suggestions.length === 0 && <p className="jp-muted">Your resume already fits this job well. No changes suggested.</p>}
+          {result.suggestions.map((s, i) => (
             <div key={i} className="jp-tailor-diff">
-              <small>{s.section}</small>
-              <div className="jp-diff-before">{s.before}</div>
-              <div className="jp-diff-after">{s.after}</div>
+              <small>{s.label}</small>
+              <div className="jp-diff-before" style={{ whiteSpace: 'pre-wrap' }}>{s.before}</div>
+              <div className="jp-diff-after" style={{ whiteSpace: 'pre-wrap' }}>{s.after}</div>
             </div>
           ))}
-          <button className="jp-btn-primary" onClick={saveAsNew}>Save as new version</button>
+          {result.gaps.length > 0 && (
+            <div className="jp-tailor-diff">
+              <small>Not shown in your resume (add these only if they are true)</small>
+              <ul style={{ paddingLeft: 18, fontSize: 14, lineHeight: 1.6, marginTop: 6 }}>
+                {result.gaps.map((g, i) => <li key={i}>{g}</li>)}
+              </ul>
+            </div>
+          )}
+          {result.suggestions.length > 0 && (
+            <button className="jp-btn-primary" onClick={saveAsNew}>Save as new version</button>
+          )}
         </div>
       )}
     </Modal>
@@ -480,6 +605,11 @@ async function exportDocx(resume: JpResume) {
     children.push(new Paragraph({ heading: HeadingLevel.HEADING_2, children: [new TextRun(`${e.title} — ${e.company}`)] }));
     e.bullets.filter((b) => b).forEach((b) => children.push(new Paragraph({ bullet: { level: 0 }, children: [new TextRun(b)] })));
   });
+  const skills = c.skills.filter((s) => s);
+  if (skills.length) {
+    children.push(new Paragraph({ heading: HeadingLevel.HEADING_2, children: [new TextRun('Skills')] }));
+    children.push(new Paragraph({ children: [new TextRun(skills.join(' · '))] }));
+  }
   const doc = new Document({ sections: [{ children }] });
   const blob = await Packer.toBlob(doc);
   const a = document.createElement('a');
