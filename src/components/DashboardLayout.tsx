@@ -21,14 +21,12 @@ import { useAuth } from '@/lib/auth';
 const NAV_ITEMS = [
   { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { to: '/campaigns', label: 'Campaigns', icon: Megaphone },
-  { to: '/outreach', label: 'Outreach', icon: Send },
   { to: '/linkedin', label: 'LinkedIn', icon: Linkedin },
   { to: '/trigger-space', label: 'Trigger Space', icon: Plug },
   { to: '/applications', label: 'Applications', icon: KanbanSquare },
   { to: '/inbox', label: 'Inbox', icon: Inbox },
   { to: '/resume-builder', label: 'Resume Builder', icon: FileText },
   { to: '/cover-letters', label: 'Cover Letters', icon: Mail },
-  { to: '/connected-accounts', label: 'Connected Accounts', icon: Plug },
   { to: '/settings', label: 'Settings & Billing', icon: SettingsIcon },
 ];
 
