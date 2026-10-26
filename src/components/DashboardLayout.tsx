@@ -23,9 +23,9 @@ const NAV_ITEMS = [
   { to: '/resume-builder', label: 'Resume Builder', icon: FileText },
   { to: '/cover-letters', label: 'Cover Letters', icon: Mail },
   { to: '/trigger-space', label: 'Trigger Space', icon: Plug },
+  { to: '/applications', label: 'Applications', icon: KanbanSquare },
   { to: '/campaigns', label: 'Campaigns', icon: Megaphone },
   { to: '/linkedin', label: 'LinkedIn', icon: Linkedin },
-  { to: '/applications', label: 'Applications', icon: KanbanSquare },
   { to: '/inbox', label: 'Inbox', icon: Inbox },
   { to: '/settings', label: 'Settings & Billing', icon: SettingsIcon },
 ];
