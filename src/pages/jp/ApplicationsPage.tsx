@@ -1,16 +1,15 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import {
   DndContext, DragOverlay, PointerSensor, useSensor, useSensors,
   type DragEndEvent, type DragStartEvent,
 } from '@dnd-kit/core';
 import { useDroppable, useDraggable } from '@dnd-kit/core';
-import { Search, Plus, Table as TableIcon, KanbanSquare, X, Calendar, Mail, FileText, ChevronRight } from 'lucide-react';
+import { Search, Plus, Table as TableIcon, KanbanSquare, X, Calendar, Mail, ChevronRight, Linkedin } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
 import { useToast } from '@/components/Toast';
 import { Badge, EmptyState, LoadingSkeleton, Modal } from '@/components/ui';
-import { mockContacts } from '@/lib/api';
-import type { JpApplication, ApplicationStage, JpContact, JpOutreachMessage, JpReminder } from '@/types/db';
+import type { JpApplication, ApplicationStage, JpOutreachMessage, JpReminder } from '@/types/db';
 
 const STAGES: ApplicationStage[] = ['identified', 'outreach_sent', 'reply_received', 'interview', 'offer', 'rejected'];
 const STAGE_LABELS: Record<ApplicationStage, string> = {
@@ -18,38 +17,189 @@ const STAGE_LABELS: Record<ApplicationStage, string> = {
   interview: 'Interview', offer: 'Offer', rejected: 'Rejected',
 };
 
+/* ── Trigger Space jobs ────────────────────────────────────────────────
+   Jobs found by Trigger Space live in job_search_jobs. They show here in the
+   "Identified" column as virtual cards (id "ts:<job id>"). The first time you
+   move one to another stage, add notes or add a reminder, it is saved as a real
+   application. Until then it follows Trigger Space: delete the search there and
+   its jobs disappear from here too.
+   ────────────────────────────────────────────────────────────────────── */
+
+type TsJob = {
+  id: string;
+  run_id: string;
+  title: string;
+  company_name: string;
+  company_slug: string | null;
+  location: string | null;
+  job_url: string | null;
+  description: string | null;
+  posted_at: string | null;
+};
+
+type TsMeta = { jobId: string; run_id: string; company_slug: string | null };
+type AppRow = JpApplication & { _ts?: TsMeta };
+
+type ContactRow = {
+  id: string;
+  first_name: string;
+  last_name: string;
+  job_title: string | null;
+  email: string | null;
+  linkedin_url: string | null;
+};
+
+const isVirtual = (a: { id: string }) => a.id.startsWith('ts:');
+
+function toVirtual(job: TsJob, userId: string): AppRow {
+  const when = job.posted_at && !Number.isNaN(Date.parse(job.posted_at))
+    ? new Date(job.posted_at).toISOString()
+    : new Date(0).toISOString();
+  return {
+    id: `ts:${job.id}`,
+    user_id: userId,
+    campaign_id: null,
+    resume_id: null,
+    company_name: job.company_name,
+    company_domain: null,
+    job_title: job.title,
+    job_url: job.job_url,
+    location: job.location,
+    work_model: null,
+    salary_min: null,
+    salary_max: null,
+    job_description: job.description,
+    source: 'trigger_space',
+    match_score: null,
+    ats_missing_keywords: [],
+    stage: 'identified',
+    stage_changed_at: when,
+    notes: null,
+    created_at: when,
+    updated_at: when,
+    _ts: { jobId: job.id, run_id: job.run_id, company_slug: job.company_slug },
+  } as unknown as AppRow;
+}
+
 export default function ApplicationsPage() {
   const { profile } = useAuth();
   const toast = useToast();
-  const [apps, setApps] = useState<JpApplication[]>([]);
+  const [apps, setApps] = useState<AppRow[]>([]);
+  const [tsJobs, setTsJobs] = useState<TsJob[]>([]);
+  const [promotedTs, setPromotedTs] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<'kanban' | 'table'>('kanban');
   const [search, setSearch] = useState('');
   const [filterStage, setFilterStage] = useState<ApplicationStage | 'all'>('all');
-  const [selectedApp, setSelectedApp] = useState<JpApplication | null>(null);
+  const [selectedApp, setSelectedApp] = useState<AppRow | null>(null);
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
   const [showAdd, setShowAdd] = useState(false);
+  const promoting = useRef<Set<string>>(new Set());
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
   const load = useCallback(async () => {
     if (!profile) return;
-    const { data } = await supabase.from('jp_applications').select('*').eq('user_id', profile.id).order('stage_changed_at', { ascending: false });
-    setApps((data as JpApplication[]) ?? []);
+
+    const [appsRes, runsRes] = await Promise.all([
+      supabase.from('jp_applications').select('*').eq('user_id', profile.id).order('stage_changed_at', { ascending: false }),
+      // Same visibility as the Trigger Space page: only the searches this user can see
+      supabase.from('job_search_runs').select('id').order('created_at', { ascending: false }).limit(200),
+    ]);
+
+    setApps((appsRes.data as AppRow[]) ?? []);
+
+    const runIds = ((runsRes.data as { id: string }[] | null) ?? []).map((r) => r.id);
+    if (runIds.length > 0) {
+      const { data, error } = await supabase
+        .from('job_search_jobs')
+        .select('*')
+        .in('run_id', runIds)
+        .order('posted_at', { ascending: false })
+        .limit(1000);
+      if (error) console.error('Applications: could not load Trigger Space jobs:', error.message);
+      setTsJobs((data as TsJob[]) ?? []);
+    } else {
+      setTsJobs([]);
+    }
+
     setLoading(false);
   }, [profile]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { void load(); }, [load]);
 
-  const filtered = apps.filter((a) => {
-    const matchesSearch = !search || a.company_name.toLowerCase().includes(search.toLowerCase()) || a.job_title.toLowerCase().includes(search.toLowerCase());
+  // Refresh when the user returns to this tab (e.g. after deleting a search in Trigger Space)
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void load();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [load]);
+
+  // Real applications + Trigger Space jobs that haven't been saved as applications yet
+  const savedUrls = new Set(apps.map((a) => a.job_url).filter((u): u is string => Boolean(u)));
+  const virtualApps = profile
+    ? tsJobs
+        .filter((j) => !promotedTs.has(j.id) && !(j.job_url && savedUrls.has(j.job_url)))
+        .map((j) => toVirtual(j, profile.id))
+    : [];
+  const allApps: AppRow[] = [...apps, ...virtualApps].sort(
+    (a, b) => new Date(b.stage_changed_at).getTime() - new Date(a.stage_changed_at).getTime(),
+  );
+
+  const filtered = allApps.filter((a) => {
+    const q = search.toLowerCase();
+    const matchesSearch = !search || a.company_name.toLowerCase().includes(q) || a.job_title.toLowerCase().includes(q);
     const matchesStage = filterStage === 'all' || a.stage === filterStage;
     return matchesSearch && matchesStage;
   });
 
+  // Save a Trigger Space job as a real application
+  const promote = async (virtual: AppRow, stage: ApplicationStage = 'identified'): Promise<AppRow | null> => {
+    if (!profile || !virtual._ts) return null;
+    if (promoting.current.has(virtual.id)) return null;
+    promoting.current.add(virtual.id);
+
+    const { data, error } = await supabase.from('jp_applications').insert({
+      user_id: profile.id,
+      company_name: virtual.company_name,
+      job_title: virtual.job_title,
+      job_url: virtual.job_url,
+      location: virtual.location,
+      job_description: virtual.job_description,
+      source: 'trigger_space',
+      stage,
+      stage_changed_at: new Date().toISOString(),
+    }).select().single();
+
+    promoting.current.delete(virtual.id);
+
+    if (error || !data) {
+      toast.show('Could not save this job to Applications.', 'error');
+      return null;
+    }
+
+    const real = data as AppRow;
+    setApps((prev) => [real, ...prev]);
+    setPromotedTs((prev) => new Set(prev).add(virtual._ts!.jobId));
+    setSelectedApp((prev) => (prev && prev.id === virtual.id ? real : prev));
+    return real;
+  };
+
   const moveStage = async (appId: string, newStage: ApplicationStage) => {
-    setApps((prev) => prev.map((a) => (a.id === appId ? { ...a, stage: newStage, stage_changed_at: new Date().toISOString() } : a)));
-    await supabase.from('jp_applications').update({ stage: newStage, stage_changed_at: new Date().toISOString() }).eq('id', appId);
+    const target = allApps.find((a) => a.id === appId);
+    if (!target) return;
+
+    if (isVirtual(target)) {
+      if (newStage !== 'identified') await promote(target, newStage);
+      return;
+    }
+
+    const now = new Date().toISOString();
+    setApps((prev) => prev.map((a) => (a.id === appId ? { ...a, stage: newStage, stage_changed_at: now } : a)));
+    setSelectedApp((prev) => (prev && prev.id === appId ? { ...prev, stage: newStage, stage_changed_at: now } : prev));
+    await supabase.from('jp_applications').update({ stage: newStage, stage_changed_at: now }).eq('id', appId);
   };
 
   const onDragStart = (e: DragStartEvent) => setActiveDragId(e.active.id as string);
@@ -63,7 +213,16 @@ export default function ApplicationsPage() {
     }
   };
 
-  const activeApp = activeDragId ? apps.find((a) => a.id === activeDragId) : null;
+  const activeApp = activeDragId ? allApps.find((a) => a.id === activeDragId) : null;
+
+  // Contact source for the open drawer: the Trigger Space search this job came from (own searches only)
+  const tsMeta: TsMeta | null = selectedApp
+    ? selectedApp._ts
+      ?? (() => {
+        const job = selectedApp.job_url ? tsJobs.find((j) => j.job_url === selectedApp.job_url) : undefined;
+        return job ? { jobId: job.id, run_id: job.run_id, company_slug: job.company_slug } : null;
+      })()
+    : null;
 
   if (loading) return <div className="jp-page-header"><h1>Applications</h1><LoadingSkeleton className="jp-card-skel" /></div>;
 
@@ -86,9 +245,9 @@ export default function ApplicationsPage() {
         </div>
       </div>
 
-      {apps.length === 0 ? (
+      {allApps.length === 0 ? (
         <EmptyState icon={<KanbanSquare size={36} />} title="No applications yet"
-          description="Applications will appear here once your campaigns find jobs, or add one manually."
+          description="Jobs you find in Trigger Space and your campaigns appear here. You can also add one manually."
           action={<button className="jp-btn-primary" onClick={() => setShowAdd(true)}><Plus size={18} /> Add a job manually</button>} />
       ) : view === 'kanban' ? (
         <DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd}>
@@ -117,13 +276,21 @@ export default function ApplicationsPage() {
         </div>
       )}
 
-      {selectedApp && <ApplicationDrawer app={selectedApp} onClose={() => setSelectedApp(null)} onMove={moveStage} />}
+      {selectedApp && (
+        <ApplicationDrawer
+          app={selectedApp}
+          tsMeta={tsMeta}
+          onClose={() => setSelectedApp(null)}
+          onMove={moveStage}
+          onPromote={promote}
+        />
+      )}
       <AddJobModal open={showAdd} onClose={() => setShowAdd(false)} onAdded={load} />
     </div>
   );
 }
 
-function KanbanColumn({ stage, apps, onSelect }: { stage: ApplicationStage; apps: JpApplication[]; onSelect: (a: JpApplication) => void }) {
+function KanbanColumn({ stage, apps, onSelect }: { stage: ApplicationStage; apps: AppRow[]; onSelect: (a: AppRow) => void }) {
   const { setNodeRef, isOver } = useDroppable({ id: stage });
   return (
     <div className={`jp-kanban-col ${isOver ? 'drag-over' : ''}`} ref={setNodeRef}>
@@ -140,7 +307,7 @@ function KanbanColumn({ stage, apps, onSelect }: { stage: ApplicationStage; apps
   );
 }
 
-function DraggableCard({ app, onSelect }: { app: JpApplication; onSelect: () => void }) {
+function DraggableCard({ app, onSelect }: { app: AppRow; onSelect: () => void }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: app.id });
   return (
     <div ref={setNodeRef} {...listeners} {...attributes} className={`jp-kanban-card ${isDragging ? 'dragging' : ''}`} onClick={onSelect}>
@@ -149,7 +316,7 @@ function DraggableCard({ app, onSelect }: { app: JpApplication; onSelect: () => 
   );
 }
 
-function KanbanCard({ app }: { app: JpApplication }) {
+function KanbanCard({ app }: { app: AppRow }) {
   return (
     <>
       <div className="jp-kanban-card-title">{app.job_title}</div>
@@ -162,39 +329,75 @@ function KanbanCard({ app }: { app: JpApplication }) {
   );
 }
 
-function ApplicationDrawer({ app, onClose, onMove }: { app: JpApplication; onClose: () => void; onMove: (id: string, stage: ApplicationStage) => void }) {
+function ApplicationDrawer({ app, tsMeta, onClose, onMove, onPromote }: {
+  app: AppRow;
+  tsMeta: TsMeta | null;
+  onClose: () => void;
+  onMove: (id: string, stage: ApplicationStage) => void;
+  onPromote: (app: AppRow, stage?: ApplicationStage) => Promise<AppRow | null>;
+}) {
   const { profile } = useAuth();
   const toast = useToast();
-  const [contacts, setContacts] = useState<JpContact[]>([]);
+  const [contacts, setContacts] = useState<ContactRow[]>([]);
   const [messages, setMessages] = useState<JpOutreachMessage[]>([]);
   const [reminders, setReminders] = useState<JpReminder[]>([]);
   const [notes, setNotes] = useState(app.notes ?? '');
 
   useEffect(() => {
+    let cancelled = false;
     (async () => {
-      const [c, m, r] = await Promise.all([
-        supabase.from('jp_contacts').select('*').eq('application_id', app.id),
-        supabase.from('jp_outreach_messages').select('*').eq('application_id', app.id),
-        supabase.from('jp_reminders').select('*').eq('application_id', app.id).eq('done', false).order('due_at', { ascending: true }),
-      ]);
-      let realContacts = (c.data as JpContact[]) ?? [];
-      if (realContacts.length === 0) realContacts = mockContacts(app.id);
-      setContacts(realContacts);
-      setMessages((m.data as JpOutreachMessage[]) ?? []);
-      setReminders((r.data as JpReminder[]) ?? []);
+      let list: ContactRow[] = [];
+      let msgs: JpOutreachMessage[] = [];
+      let rems: JpReminder[] = [];
+
+      if (!isVirtual(app)) {
+        const [c, m, r] = await Promise.all([
+          supabase.from('jp_contacts').select('*').eq('application_id', app.id),
+          supabase.from('jp_outreach_messages').select('*').eq('application_id', app.id),
+          supabase.from('jp_reminders').select('*').eq('application_id', app.id).eq('done', false).order('due_at', { ascending: true }),
+        ]);
+        list = ((c.data as { id: string; first_name: string | null; last_name: string | null; job_title: string | null; email: string | null; linkedin_url: string | null }[] | null) ?? [])
+          .map((x) => ({ id: x.id, first_name: x.first_name ?? '', last_name: x.last_name ?? '', job_title: x.job_title, email: x.email, linkedin_url: x.linkedin_url }));
+        msgs = (m.data as JpOutreachMessage[]) ?? [];
+        rems = (r.data as JpReminder[]) ?? [];
+      }
+
+      // People found by Trigger Space for this company
+      if (list.length === 0 && tsMeta?.company_slug) {
+        const { data } = await supabase
+          .from('job_search_contacts')
+          .select('*')
+          .eq('run_id', tsMeta.run_id)
+          .eq('company_slug', tsMeta.company_slug);
+        list = ((data as { id: string; first_name: string | null; last_name: string | null; headline: string | null; email: string | null; linkedin_url: string | null }[] | null) ?? [])
+          .map((x) => ({ id: x.id, first_name: x.first_name ?? '', last_name: x.last_name ?? '', job_title: x.headline, email: x.email, linkedin_url: x.linkedin_url }));
+      }
+
+      if (cancelled) return;
+      setContacts(list);
+      setMessages(msgs);
+      setReminders(rems);
     })();
-  }, [app.id]);
+    return () => { cancelled = true; };
+  }, [app.id, tsMeta?.run_id, tsMeta?.company_slug]);
+
+  // Notes and reminders need a real application row; save the Trigger Space job first if needed
+  const ensureReal = async (): Promise<AppRow | null> => (isVirtual(app) ? onPromote(app) : app);
 
   const saveNotes = async () => {
-    await supabase.from('jp_applications').update({ notes }).eq('id', app.id);
+    const real = await ensureReal();
+    if (!real) return;
+    await supabase.from('jp_applications').update({ notes }).eq('id', real.id);
     toast.show('Notes saved.', 'success');
   };
 
   const addReminder = async () => {
     if (!profile) return;
+    const real = await ensureReal();
+    if (!real) return;
     const { data } = await supabase.from('jp_reminders').insert({
-      user_id: profile.id, application_id: app.id, kind: 'follow_up',
-      title: `Follow up on ${app.job_title} at ${app.company_name}`,
+      user_id: profile.id, application_id: real.id, kind: 'follow_up',
+      title: `Follow up on ${real.job_title} at ${real.company_name}`,
       due_at: new Date(Date.now() + 3 * 86400000).toISOString(),
     }).select().single();
     if (data) setReminders((prev) => [...prev, data as JpReminder]);
@@ -208,6 +411,9 @@ function ApplicationDrawer({ app, onClose, onMove }: { app: JpApplication; onClo
           <div>
             <h2>{app.job_title}</h2>
             <p>{app.company_name} {app.location ? `· ${app.location}` : ''}</p>
+            {app.job_url && (
+              <p><a href={app.job_url} target="_blank" rel="noreferrer">View job posting</a></p>
+            )}
           </div>
           <button onClick={onClose}><X size={20} /></button>
         </div>
@@ -250,7 +456,10 @@ function ApplicationDrawer({ app, onClose, onMove }: { app: JpApplication; onClo
               {contacts.map((c) => (
                 <div key={c.id} className="jp-contact-row">
                   <div><strong>{c.first_name} {c.last_name}</strong><span>{c.job_title}</span></div>
-                  {c.email && <a href={`mailto:${c.email}`}><Mail size={14} /> {c.email}</a>}
+                  <div>
+                    {c.linkedin_url && <a href={c.linkedin_url} target="_blank" rel="noreferrer"><Linkedin size={14} /> Profile</a>}
+                    {c.email && <a href={`mailto:${c.email}`}><Mail size={14} /> {c.email}</a>}
+                  </div>
                 </div>
               ))}
               {contacts.length === 0 && <p className="jp-muted">No contacts found yet.</p>}
