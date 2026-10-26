@@ -410,3 +410,68 @@
     font-size: 19px;
   }
 }
+
+/* ═══ APPEND to the end of TriggerSpacePage.css ═══ */
+
+/* Form: source, keyword, location, experience, job count, Trigger button */
+.trigger-space__form {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1.6fr) minmax(0, 1fr) 150px 120px auto;
+  gap: 12px;
+  align-items: center;
+}
+.trigger-space__form .trigger-space__error { grid-column: 1 / -1; margin: 0; }
+@media (max-width: 1100px) {
+  .trigger-space__form { grid-template-columns: 1fr 1fr; }
+  .trigger-space__form .trigger-space__button { grid-column: 1 / -1; }
+}
+@media (max-width: 560px) {
+  .trigger-space__form { grid-template-columns: 1fr; }
+}
+
+/* Number-of-jobs field with a "jobs" suffix */
+.trigger-space__count { position: relative; }
+.trigger-space__count input { width: 100%; padding-right: 52px; -moz-appearance: textfield; }
+.trigger-space__count input::-webkit-outer-spin-button,
+.trigger-space__count input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.trigger-space__count span {
+  position: absolute; right: 14px; top: 50%; transform: translateY(-50%);
+  font-size: 13px; color: #8a8aa8; pointer-events: none;
+}
+
+/* Recent-search chips with a delete button */
+.trigger-space__run-wrap { position: relative; display: inline-flex; }
+.trigger-space__run-wrap .trigger-space__run { padding-right: 42px; }
+.trigger-space__delete {
+  position: absolute; right: 10px; top: 50%; transform: translateY(-50%);
+  display: grid; place-items: center; width: 26px; height: 26px;
+  border: 0; border-radius: 50%; background: transparent; color: #8a8aa8;
+  cursor: pointer; transition: background .2s, color .2s;
+}
+.trigger-space__delete:hover { background: rgba(239, 68, 68, .12); color: #ef4444; }
+
+/* Delete confirmation dialog */
+.trigger-space__modal-backdrop {
+  position: fixed; inset: 0; z-index: 200; padding: 20px;
+  display: grid; place-items: center;
+  background: rgba(26, 26, 46, .45); backdrop-filter: blur(4px);
+}
+.trigger-space__modal {
+  width: min(100%, 440px); background: #fff; border-radius: 16px; padding: 28px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, .18);
+}
+.trigger-space__modal h3 { font-size: 20px; font-weight: 700; color: #1a1a2e; margin: 0 0 10px; }
+.trigger-space__modal p { font-size: 14px; line-height: 1.6; color: #4a4a6a; margin: 0 0 12px; }
+.trigger-space__modal-warning { color: #b45309 !important; background: rgba(245, 158, 11, .1); padding: 10px 12px; border-radius: 8px; }
+.trigger-space__modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
+.trigger-space__modal-cancel,
+.trigger-space__modal-delete {
+  display: inline-flex; align-items: center; gap: 8px; height: 40px; padding: 0 18px;
+  border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer;
+}
+.trigger-space__modal-cancel { background: #fff; border: 1px solid #e8e8f0; color: #1a1a2e; }
+.trigger-space__modal-cancel:hover { border-color: #5B4FE8; color: #5B4FE8; }
+.trigger-space__modal-delete { background: #ef4444; border: 0; color: #fff; }
+.trigger-space__modal-delete:hover { background: #dc2626; }
+.trigger-space__modal-cancel:disabled,
+.trigger-space__modal-delete:disabled { opacity: .6; cursor: wait; }
