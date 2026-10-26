@@ -1,9 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import {
-  FunnelChart, Funnel, FunnelChart as FunnelIcon, LabelList,
-} from 'recharts';
-import { Megaphone, Send, Reply, Calendar, Award, TrendingUp, BellRing, Plus, Play } from 'lucide-react';
+import { FunnelChart, Funnel, LabelList } from 'recharts';
+import { Megaphone, Send, Reply, Calendar, BellRing, Plus, Play } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
 import { EmptyState, LoadingSkeleton } from '@/components/ui';
@@ -22,49 +20,93 @@ const STAGE_LABELS: Record<string, string> = {
   rejected: 'Rejected',
 };
 
+const stageColors: Record<string, string> = {
+  identified: '#5B4FE8',
+  outreach_sent: '#7B6FF0',
+  reply_received: '#9B8FF8',
+  interview: '#3b82f6',
+  offer: '#22c55e',
+};
+
 export default function DashboardPage() {
   const { profile } = useAuth();
   const [funnel, setFunnel] = useState<JpFunnelCount[]>([]);
+  const [jobsIdentified, setJobsIdentified] = useState(0);
   const [dailySent, setDailySent] = useState(0);
   const [replyStats, setReplyStats] = useState<JpReplyStat[]>([]);
   const [reminders, setReminders] = useState<JpReminder[]>([]);
   const [loading, setLoading] = useState(true);
+  const [hasRunning, setHasRunning] = useState(false);
   const [triggerOpen, setTriggerOpen] = useState(false);
 
-  useEffect(() => {
-    (async () => {
-      const today = new Date().toISOString().slice(0, 10);
-      const [f, d, r, rem] = await Promise.all([
-        supabase.from('jp_funnel_counts').select('*').eq('user_id', profile!.id),
-        supabase.from('jp_daily_send_counts').select('*').eq('user_id', profile!.id).eq('day', today),
-        supabase.from('jp_reply_stats').select('*').eq('user_id', profile!.id),
-        supabase
-          .from('jp_reminders')
-          .select('*')
-          .eq('user_id', profile!.id)
-          .eq('done', false)
-          .gte('due_at', new Date().toISOString())
-          .lte('due_at', new Date(Date.now() + 7 * 86400000).toISOString())
-          .order('due_at', { ascending: true }),
-      ]);
-      setFunnel((f.data as JpFunnelCount[]) ?? []);
-      setDailySent((d.data as JpDailySendCount[])?.reduce((s, x) => s + x.sent, 0) ?? 0);
-      setReplyStats((r.data as JpReplyStat[]) ?? []);
-      setReminders((rem.data as JpReminder[]) ?? []);
-      setLoading(false);
-    })();
+  const loadData = useCallback(async () => {
+    if (!profile) return;
+    const today = new Date().toISOString().slice(0, 10);
+    const recentRunSince = Date.now() - 15 * 60 * 1000;
+
+    const [f, d, r, rem, runsResult] = await Promise.all([
+      supabase.from('jp_funnel_counts').select('*').eq('user_id', profile.id),
+      supabase.from('jp_daily_send_counts').select('*').eq('user_id', profile.id).eq('day', today),
+      supabase.from('jp_reply_stats').select('*').eq('user_id', profile.id),
+      supabase
+        .from('jp_reminders')
+        .select('*')
+        .eq('user_id', profile.id)
+        .eq('done', false)
+        .gte('due_at', new Date().toISOString())
+        .lte('due_at', new Date(Date.now() + 7 * 86400000).toISOString())
+        .order('due_at', { ascending: true }),
+      // Trigger Space searches: same table and visibility as the "Your recent jobs" chips,
+      // so the dashboard total always equals the sum of those chips (deleting a search lowers it)
+      supabase.from('job_search_runs').select('jobs_found, status, created_at'),
+    ]);
+
+    if (runsResult.error) {
+      console.error('Dashboard: could not load Trigger Space searches:', runsResult.error.message);
+    }
+
+    const runs = (runsResult.data as { jobs_found: number | null; status: string; created_at: string }[] | null) ?? [];
+    const identified = runs.reduce((sum, run) => sum + (run.jobs_found ?? 0), 0);
+    // A search started in the last 15 minutes that is still running → keep refreshing
+    const running = runs.some((run) => run.status === 'running' && new Date(run.created_at).getTime() > recentRunSince);
+
+    setFunnel((f.data as JpFunnelCount[]) ?? []);
+    setJobsIdentified(identified);
+    setDailySent((d.data as JpDailySendCount[])?.reduce((s, x) => s + x.sent, 0) ?? 0);
+    setReplyStats((r.data as JpReplyStat[]) ?? []);
+    setReminders((rem.data as JpReminder[]) ?? []);
+    setHasRunning(running);
+    setLoading(false);
   }, [profile]);
+
+  useEffect(() => { void loadData(); }, [loadData]);
+
+  // Refresh when the user comes back to this tab (e.g. after deleting a search in Trigger Space)
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void loadData();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [loadData]);
+
+  // While a search is running, refresh every 5 s so the number climbs as jobs arrive
+  useEffect(() => {
+    if (!hasRunning) return;
+    const timer = window.setInterval(() => { void loadData(); }, 5000);
+    return () => window.clearInterval(timer);
+  }, [hasRunning, loadData]);
 
   const funnelMap = new Map(funnel.map((f) => [f.stage, f.total]));
   const funnelData = STAGE_ORDER.filter((s) => s !== 'rejected').map((stage) => ({
     stage,
     label: STAGE_LABELS[stage],
-    value: funnelMap.get(stage) ?? 0,
+    value: stage === 'identified' ? jobsIdentified : funnelMap.get(stage) ?? 0,
     fill: stageColors[stage],
   }));
 
   const kpis = [
-    { label: 'Jobs Identified', value: funnelMap.get('identified') ?? 0, icon: Megaphone },
+    { label: 'Jobs Identified', value: jobsIdentified, icon: Megaphone },
     { label: 'Outreach Sent', value: funnelMap.get('outreach_sent') ?? 0, icon: Send },
     { label: 'Replies', value: funnelMap.get('reply_received') ?? 0, icon: Reply },
     { label: 'Interviews', value: funnelMap.get('interview') ?? 0, icon: Calendar },
@@ -111,7 +153,13 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      <CandidateTriggerModal open={triggerOpen} onClose={() => setTriggerOpen(false)} />
+      <CandidateTriggerModal
+        open={triggerOpen}
+        onClose={() => {
+          setTriggerOpen(false);
+          void loadData();
+        }}
+      />
 
       <div className="jp-kpi-grid">
         {kpis.map((kpi) => (
@@ -225,11 +273,3 @@ export default function DashboardPage() {
     </div>
   );
 }
-
-const stageColors: Record<string, string> = {
-  identified: '#5B4FE8',
-  outreach_sent: '#7B6FF0',
-  reply_received: '#9B8FF8',
-  interview: '#3b82f6',
-  offer: '#22c55e',
-};
