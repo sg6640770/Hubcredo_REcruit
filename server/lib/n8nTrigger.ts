@@ -16,6 +16,7 @@
 // eventually succeeds.
 
 interface TriggerScrapeParams {
+  runId: string;            
   userId: string;
   source: "linkedin" | "indeed" | "both";
   keyword: string;
@@ -36,13 +37,13 @@ interface TriggerCandidateSearchParams {
 
 const JOB_SIGNAL_WEBHOOKS: Partial<Record<"linkedin" | "indeed", string>> = {
   linkedin: process.env.N8N_LINKEDIN_WEBHOOK_URL
-    ?? "https://shreyahubcredo.app.n8n.cloud/webhook/fetch-job-post",
+    ?? "https://shreyahubcredo.app.n8n.cloud/webhook-test/fetch-job-post",
   indeed: process.env.N8N_INDEED_WEBHOOK_URL, // TODO: set once the Indeed workflow exists
 };
 
 const CANDIDATE_SOURCING_WEBHOOK =
   process.env.N8N_CANDIDATE_WEBHOOK_URL
-  ?? "https://shreyahubcredo.app.n8n.cloud/webhook/candidate";
+  ?? "https://shreyahubcredo.app.n8n.cloud/webhook-test/candidate";
 
 async function postJson(url: string, body: unknown, timeoutMs = 15_000): Promise<void> {
   const controller = new AbortController();
@@ -79,6 +80,7 @@ async function callJobSignalWebhook(
     throw new Error(`No n8n webhook configured for source "${source}"`);
   }
   await postJson(url, {
+    run_id: payload.runId, 
     source,
     user_id: payload.userId,
     keyword: payload.keyword,
