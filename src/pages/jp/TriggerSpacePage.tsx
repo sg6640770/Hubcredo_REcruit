@@ -7,12 +7,28 @@ import {
   Linkedin,
   Mail,
   Trash2,
+  Search,
+  MapPin,
+  Sparkles,
+  Home,
+  Shuffle,
+  Building2,
+  Check,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import './TriggerSpacePage.css';
 
 // Highest number of jobs one search may request (frontend limit — change if your backend allows more)
 const MAX_JOBS = 50;
+
+// Work-mode filter. Nothing selected = any work mode.
+const WORK_MODES = [
+  { value: 'remote', label: 'Remote', icon: Home },
+  { value: 'hybrid', label: 'Hybrid', icon: Shuffle },
+  { value: 'onsite', label: 'On-site', icon: Building2 },
+] as const;
+
+type WorkMode = (typeof WORK_MODES)[number]['value'];
 
 type Run = {
   id: string;
@@ -89,6 +105,7 @@ export default function TriggerSpacePage() {
     industry: '',
     max_jobs: '20', // kept as text so the field can be cleared while typing
   });
+  const [workModes, setWorkModes] = useState<WorkMode[]>([]);
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
@@ -196,6 +213,12 @@ export default function TriggerSpacePage() {
     return () => window.removeEventListener('keydown', onKey);
   }, [pendingDelete, deleting]);
 
+  const toggleWorkMode = (mode: WorkMode) => {
+    setWorkModes((prev) =>
+      prev.includes(mode) ? prev.filter((m) => m !== mode) : [...prev, mode]
+    );
+  };
+
   const submit = async () => {
     if (!form.keyword.trim()) {
       setError('Please enter a job title or keyword.');
@@ -223,6 +246,8 @@ export default function TriggerSpacePage() {
         keyword: form.keyword.trim(),
         location: form.location.trim(),
         max_jobs: maxJobs,
+        // e.g. ['remote', 'hybrid'] — an empty list means "any work mode"
+        work_mode: workModes,
       });
 
       await loadRuns();
@@ -279,6 +304,9 @@ export default function TriggerSpacePage() {
     <div className="trigger-space">
       {/* Page header */}
       <header className="trigger-space__header">
+        <span className="trigger-space__badge">
+          <Sparkles size={14} /> Job discovery engine
+        </span>
         <h1>Trigger Space</h1>
         <p>
           Search jobs, discover hiring companies, and find the right
@@ -294,86 +322,137 @@ export default function TriggerSpacePage() {
           void submit();
         }}
       >
-        <select
-          aria-label="Job source"
-          className={inputCls}
-          value={form.source}
-          onChange={(event) =>
-            setForm({ ...form, source: event.target.value })
-          }
-        >
-          <option value="linkedin">LinkedIn</option>
-          <option value="indeed">Indeed</option>
-          <option value="both">Both sources</option>
-        </select>
+        <div className="trigger-space__row trigger-space__row--top">
+          <label className="trigger-space__field">
+            <span className="trigger-space__label">Source</span>
+            <select
+              aria-label="Job source"
+              className={inputCls}
+              value={form.source}
+              onChange={(event) =>
+                setForm({ ...form, source: event.target.value })
+              }
+            >
+              <option value="linkedin">LinkedIn</option>
+              <option value="indeed">Indeed</option>
+              <option value="both">Both sources</option>
+            </select>
+          </label>
 
-        <input
-          className={inputCls}
-          placeholder="Keyword e.g. Backend Engineer"
-          aria-label="Job keyword"
-          value={form.keyword}
-          onChange={(event) =>
-            setForm({ ...form, keyword: event.target.value })
-          }
-        />
+          <label className="trigger-space__field">
+            <span className="trigger-space__label">Job title or keyword</span>
+            <div className="trigger-space__icon-input">
+              <Search size={16} />
+              <input
+                className={inputCls}
+                placeholder="e.g. Backend Engineer"
+                aria-label="Job keyword"
+                value={form.keyword}
+                onChange={(event) =>
+                  setForm({ ...form, keyword: event.target.value })
+                }
+              />
+            </div>
+          </label>
 
-        <input
-          className={inputCls}
-          placeholder="Location"
-          aria-label="Job location"
-          value={form.location}
-          onChange={(event) =>
-            setForm({ ...form, location: event.target.value })
-          }
-        />
+          <label className="trigger-space__field">
+            <span className="trigger-space__label">Location</span>
+            <div className="trigger-space__icon-input">
+              <MapPin size={16} />
+              <input
+                className={inputCls}
+                placeholder="Location"
+                aria-label="Job location"
+                value={form.location}
+                onChange={(event) =>
+                  setForm({ ...form, location: event.target.value })
+                }
+              />
+            </div>
+          </label>
 
-        <select
-          aria-label="Experience level"
-          className={inputCls}
-          value={form.experience}
-          onChange={(event) =>
-            setForm({ ...form, experience: event.target.value })
-          }
-        >
-          <option>Entry Level</option>
-          <option>Mid-Senior</option>
-          <option>Senior</option>
-        </select>
-
-        <div className="trigger-space__count">
-          <input
-            type="number"
-            min={1}
-            max={MAX_JOBS}
-            step={1}
-            inputMode="numeric"
-            className={inputCls}
-            placeholder="20"
-            aria-label={`Number of jobs to fetch (1 to ${MAX_JOBS})`}
-            title={`How many jobs to fetch (1–${MAX_JOBS})`}
-            value={form.max_jobs}
-            onChange={(event) =>
-              setForm({ ...form, max_jobs: event.target.value.replace(/[^\d]/g, '') })
-            }
-          />
-          <span>jobs</span>
+          <label className="trigger-space__field">
+            <span className="trigger-space__label">Experience</span>
+            <select
+              aria-label="Experience level"
+              className={inputCls}
+              value={form.experience}
+              onChange={(event) =>
+                setForm({ ...form, experience: event.target.value })
+              }
+            >
+              <option>Entry Level</option>
+              <option>Mid-Senior</option>
+              <option>Senior</option>
+            </select>
+          </label>
         </div>
 
-        <button
-          type="submit"
-          disabled={submitting}
-          className="trigger-space__button"
-        >
-          {submitting ? (
-            <Loader2
-              size={17}
-              className="trigger-space__spinner"
-            />
-          ) : (
-            <Play size={17} />
-          )}
-          {submitting ? 'Starting...' : 'Trigger'}
-        </button>
+        <div className="trigger-space__row trigger-space__row--bottom">
+          <div className="trigger-space__field trigger-space__field--modes">
+            <span className="trigger-space__label">
+              Work mode <em>· pick any, or leave empty for all</em>
+            </span>
+            <div className="trigger-space__modes" role="group" aria-label="Work mode">
+              {WORK_MODES.map(({ value, label, icon: Icon }) => {
+                const active = workModes.includes(value);
+                return (
+                  <button
+                    key={value}
+                    type="button"
+                    aria-pressed={active}
+                    className={`trigger-space__mode ${
+                      active ? 'trigger-space__mode--active' : ''
+                    }`}
+                    onClick={() => toggleWorkMode(value)}
+                  >
+                    <Icon size={15} />
+                    {label}
+                    {active && <Check size={14} className="trigger-space__mode-check" />}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="trigger-space__field trigger-space__field--count">
+            <span className="trigger-space__label">Number of jobs</span>
+            <div className="trigger-space__count">
+              <input
+                type="number"
+                min={1}
+                max={MAX_JOBS}
+                step={1}
+                inputMode="numeric"
+                className={inputCls}
+                placeholder="20"
+                aria-label={`Number of jobs to fetch (1 to ${MAX_JOBS})`}
+                title={`How many jobs to fetch (1–${MAX_JOBS})`}
+                value={form.max_jobs}
+                onChange={(event) =>
+                  setForm({ ...form, max_jobs: event.target.value.replace(/[^\d]/g, '') })
+                }
+              />
+              <span>jobs</span>
+            </div>
+          </div>
+
+          <button
+            type="submit"
+            disabled={submitting}
+            className="trigger-space__button"
+          >
+            {submitting ? (
+              <Loader2
+                size={17}
+                className="trigger-space__spinner"
+              />
+            ) : (
+              <Play size={17} />
+            )}
+            {submitting ? 'Starting...' : 'Trigger'}
+          </button>
+        </div>
 
         {error && (
           <p className="trigger-space__error" role="alert">
@@ -470,6 +549,10 @@ export default function TriggerSpacePage() {
                 className="trigger-space__job"
               >
                 <div className="trigger-space__job-header">
+                  <div className="trigger-space__avatar" aria-hidden="true">
+                    {job.company_name?.trim().charAt(0).toUpperCase() || '?'}
+                  </div>
+
                   <div className="trigger-space__job-info">
                     <h3 className="trigger-space__job-title">
                       {job.title}
