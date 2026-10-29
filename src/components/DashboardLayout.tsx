@@ -17,12 +17,19 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
+import InfoTip from '@/pages/jp/InfoTip';
 
 const NAV_ITEMS = [
   { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { to: '/resume-builder', label: 'Resume Builder', icon: FileText },
   { to: '/cover-letters', label: 'Cover Letters', icon: Mail },
   { to: '/trigger-space', label: 'Trigger Space', icon: Plug },
+  {
+    to: '/live-jobs',
+    label: 'Live Jobs',
+    icon: Radio,
+    info: 'Runs daily · shows jobs posted in the last 7 days',
+  },
   { to: '/applications', label: 'Applications', icon: KanbanSquare },
   { to: '/campaigns', label: 'Campaigns', icon: Megaphone },
   { to: '/linkedin', label: 'LinkedIn', icon: Linkedin },
