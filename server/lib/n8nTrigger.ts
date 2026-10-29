@@ -15,8 +15,43 @@
 // otherwise every trigger call here will time out even when the workflow
 // eventually succeeds.
 
+// ── Work mode ───────────────────────────────────────────────────────────────
+
+export type WorkMode = "remote" | "hybrid" | "onsite";
+
+const VALID_WORK_MODES: readonly WorkMode[] = ["remote", "hybrid", "onsite"];
+
+// LinkedIn "f_WT" work-type filter codes: 1 = On-site, 2 = Remote, 3 = Hybrid
+const LINKEDIN_WORK_TYPE_CODE: Record<WorkMode, string> = {
+  onsite: "1",
+  remote: "2",
+  hybrid: "3",
+};
+
+/**
+ * Cleans whatever the frontend sent into a de-duplicated list of valid modes.
+ * Accepts an array (["remote","hybrid"]) or a comma-separated string ("remote,hybrid").
+ * Anything unknown is dropped; an empty result means "any work mode".
+ */
+export function normalizeWorkModes(input: unknown): WorkMode[] {
+  const raw: unknown[] = Array.isArray(input)
+    ? input
+    : typeof input === "string"
+      ? input.split(",")
+      : [];
+
+  const cleaned = raw
+    .map((v) => String(v).trim().toLowerCase().replace(/[\s_-]/g, ""))
+    .map((v) => (v === "on-site" || v === "onsite" ? "onsite" : v))
+    .filter((v): v is WorkMode => (VALID_WORK_MODES as readonly string[]).includes(v));
+
+  return Array.from(new Set(cleaned));
+}
+
+// ── Types ───────────────────────────────────────────────────────────────────
+
 interface TriggerScrapeParams {
-  runId: string;            
+  runId: string;
   userId: string;
   source: "linkedin" | "indeed" | "both";
   keyword: string;
@@ -25,6 +60,7 @@ interface TriggerScrapeParams {
   industry?: string;
   country?: string;
   maxJobs?: number;
+  workMode?: WorkMode[]; // empty / undefined = any work mode
 }
 
 interface TriggerCandidateSearchParams {
@@ -79,8 +115,11 @@ async function callJobSignalWebhook(
   if (!url) {
     throw new Error(`No n8n webhook configured for source "${source}"`);
   }
+
+  const workModes = normalizeWorkModes(payload.workMode);
+
   await postJson(url, {
-    run_id: payload.runId, 
+    run_id: payload.runId,
     source,
     user_id: payload.userId,
     keyword: payload.keyword,
@@ -89,6 +128,14 @@ async function callJobSignalWebhook(
     industry: payload.industry ?? null,
     country: payload.country ?? "IN",
     max_jobs: payload.maxJobs ?? 100,
+
+    // Work mode — three shapes so n8n can use whichever is easiest:
+    //   work_mode       → ["remote","hybrid"]  ([] = any)
+    //   work_mode_text  → "remote,hybrid"      ("" = any)
+    //   work_type_codes → "2,3"                (LinkedIn f_WT filter, "" = any)
+    work_mode: workModes,
+    work_mode_text: workModes.join(","),
+    work_type_codes: workModes.map((m) => LINKEDIN_WORK_TYPE_CODE[m]).join(","),
   });
 }
 
