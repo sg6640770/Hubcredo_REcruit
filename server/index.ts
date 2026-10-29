@@ -8,6 +8,7 @@ import integrationsManualRouter from "./routes/integrationsManual";
 import inboxkitRouter from "./routes/inboxkit";
 import healthRouter from "./routes/health";
 import jobpilotAi from './routes/jobpilotAi';
+import liveJobsRouter from "./routes/liveJobs";
    
 
 const app = express();
@@ -20,5 +21,6 @@ app.use("/api", integrationsManualRouter);
 app.use("/api", inboxkitRouter);
 app.use("/api", healthRouter);
 app.use("/api/jobpilot/ai", jobpilotAi);
+app.use("/api", liveJobsRouter);
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => console.log(`Backend on :${PORT}`));
