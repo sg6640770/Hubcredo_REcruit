@@ -2,7 +2,7 @@ import { Router, type IRouter } from "express";
 import { supabase } from "../lib/supabase";
 import { requireAuth, type AuthenticatedRequest } from "../lib/auth";
 import { aggregateSignals, computeFingerprint, type RawPosting } from "../lib/jobSignalsAggregate";
-import { triggerScrape, triggerCandidateSearch } from "../lib/n8nTrigger";
+import { triggerScrape, triggerCandidateSearch, normalizeWorkModes } from "../lib/n8nTrigger";
 import { logger } from "../lib/logger";
 const router: IRouter = Router();
 
@@ -610,13 +610,19 @@ router.get("/recruit/job-signals", requireAuth, async (req: AuthenticatedRequest
 });
 
 router.post("/recruit/job-signals/trigger", requireAuth, async (req: AuthenticatedRequest, res): Promise<void> => {
-  const { source, keyword, location, experience, industry, country, max_jobs } = req.body;
+  const {
+    source, keyword, location, experience, industry, country, max_jobs,
+    work_mode, // ["remote","hybrid","onsite"] — empty / missing = any work mode
+  } = req.body;
 
   if (!keyword) { res.status(400).json({ error: "keyword is required" }); return; }
   if (!source || !["linkedin", "indeed", "both"].includes(source)) {
     res.status(400).json({ error: "source must be 'linkedin', 'indeed', or 'both'" });
     return;
   }
+
+  // Clean the work-mode filter once and reuse it
+  const workMode = normalizeWorkModes(work_mode);
 
   // 1. Record the run first, so it appears in "Your recent jobs" immediately
   const { data: run, error: runErr } = await supabase
@@ -641,6 +647,7 @@ router.post("/recruit/job-signals/trigger", requireAuth, async (req: Authenticat
     await triggerScrape({
       userId: req.userId!, runId: run.id, source, keyword, location,
       experience, industry, country: country || "IN", maxJobs: max_jobs,
+      workMode,
     });
     res.status(202).json({ triggered: true, run_id: run.id });
   } catch (err) {
@@ -652,6 +659,7 @@ router.post("/recruit/job-signals/trigger", requireAuth, async (req: Authenticat
     res.status(502).json({ error: "Could not reach the scraping workflow" });
   }
 });
+
 router.post("/recruit/job-signals/:fingerprint/add-to-pipeline", requireAuth, async (req: AuthenticatedRequest, res): Promise<void> => {
   const { company_name, company_domain } = req.body;
   if (!company_name) {
@@ -748,8 +756,6 @@ router.post("/recruit/job-signals/:fingerprint/pitch", requireAuth, async (req: 
   res.json({ queued: true });
 });
 
-
-
 // ── Client Sourcing (LinkedIn recruiter/TA contact search via n8n) ─────────────
 // Reads client_sourcing_raw — sourced recruiter/TA contacts at target companies,
 // same pattern as candidate-signals reads candidate_sourcing_raw.
@@ -822,20 +828,20 @@ router.post("/recruit/client-signals/:id/add-to-pipeline", requireAuth, async (r
   }
 
   const { data: created, error } = await supabase
-  .from("leads")
-  .insert({
-    user_id: req.userId!,
-    first_name: contact.first_name ?? null,
-    last_name: contact.last_name ?? null,
-    company_name: contact.company_name,
-    email: contact.contact_email,
-    linkedin_url: contact.company_linkedin_url,
-    audience_type: "client",
-    review_status: "prospect",
-    lead_list_id: leadListId,
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-  })
+    .from("leads")
+    .insert({
+      user_id: req.userId!,
+      first_name: contact.first_name ?? null,
+      last_name: contact.last_name ?? null,
+      company_name: contact.company_name,
+      email: contact.contact_email,
+      linkedin_url: contact.company_linkedin_url,
+      audience_type: "client",
+      review_status: "prospect",
+      lead_list_id: leadListId,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
     .select("id")
     .single();
 
@@ -847,8 +853,6 @@ router.post("/recruit/client-signals/:id/add-to-pipeline", requireAuth, async (r
   await bumpLeadListCount(leadListId);
   res.json({ client_id: created.id });
 });
-
-
 
 router.post("/recruit/candidate-signals/:id/add-to-network", requireAuth, async (req: AuthenticatedRequest, res): Promise<void> => {
   const { data: signal } = await supabase
@@ -900,7 +904,6 @@ router.post("/recruit/candidate-signals/:id/add-to-network", requireAuth, async 
   await bumpLeadListCount(leadListId);
   res.json({ lead: created });
 });
-
 
 // ── Lead Lists (simple, recruit-scoped) ─────────────────────────────────────
 
@@ -1071,6 +1074,5 @@ router.delete("/recruit/leads/:id", requireAuth, async (req: AuthenticatedReques
   }
   res.status(204).send();
 });
-
 
 export default router;
