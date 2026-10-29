@@ -18,6 +18,7 @@ import ApplicationsPage from '@/pages/jp/ApplicationsPage';
 import ResumeBuilderPage from '@/pages/jp/ResumeBuilderPage';
 import CoverLettersPage from '@/pages/jp/CoverLettersPage';
 import ConnectedAccountsPage from '@/pages/jp/ConnectedAccountsPage';
+import LiveJobsPage from '@/pages/jp/LiveJobsPage';
 
 /* ── HubCredo (recruiter) — original files, untouched ── */
 import RecruiterAuthPage from '@/pages/AuthPage';
@@ -34,6 +35,7 @@ import ReplyioPage from '@/pages/ReplyioPage';
 import RecruiterCampaignsPage from '@/pages/CampaignsPage';
 import RecruiterInboxPage from '@/pages/InboxPage';
 import RecruiterSettingsPage from '@/pages/SettingsPage';
+
 
 /* ═══════════════════════════════════════════════════════════════════════
    Candidate helpers
@@ -181,6 +183,7 @@ export default function App() {
             <Route path="/linkedin" element={<CandidatePage><LinkedInPage /></CandidatePage>} />
             <Route path="/inbox" element={<CandidatePage><RecruiterInboxPage /></CandidatePage>} />
             <Route path="/resume-builder" element={<CandidatePage><ResumeBuilderPage /></CandidatePage>} />
+            <Route path="/live-jobs" element={<CandidatePage><LiveJobsPage /></CandidatePage>} />
             <Route path="/cover-letters" element={<CandidatePage><CoverLettersPage /></CandidatePage>} />
             <Route path="/connected-accounts" element={<CandidatePage><ConnectedAccountsPage /></CandidatePage>} />
             <Route path="/settings" element={<CandidatePage><RecruiterSettingsPage /></CandidatePage>} />
