@@ -73,6 +73,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
               >
                 <item.icon size={18} />
                 <span>{item.label}</span>
+                {item.info && <InfoTip text={item.info} />}
               </Link>
             );
           })}
